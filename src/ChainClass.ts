@@ -14,7 +14,6 @@ export class Chain {
     };
     constructor(by: string, title: string, restoredData?: Chain) {
         if (restoredData) {
-            console.log({ restoredData });
             this.lastUpdated = restoredData.lastUpdated;
             this.by = restoredData.by;
             this.replies = restoredData.replies;

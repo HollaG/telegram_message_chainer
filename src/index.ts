@@ -35,7 +35,7 @@ bot.start(async (ctx) => {
     const chainInfoText = ctx.message.text.split(" ");
     chainInfoText.shift();
     const infoMsg = chainInfoText.join(" ").trim();
-    console.log(infoMsg);
+
 
     let replyMsg = '';
     if (infoMsg.length) replyMsg += `Chain title: ${infoMsg}\n\n=====================`;
