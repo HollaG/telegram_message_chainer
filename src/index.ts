@@ -1,4 +1,4 @@
-import { Context, Telegraf } from "telegraf";
+import { Context, NarrowedContext, Telegraf } from "telegraf";
 import { Update } from "typegram";
 import { Chain } from "./ChainClass";
 import * as fs from "fs";
@@ -18,32 +18,14 @@ export type Data = {
 };
 let data: Data = {};
 
-
 // Todo figure out the typescript typings for ctx and extract duplicated code into a function
 bot.start(async (ctx) => {
     if (ctx.chat.type === "private")
-        return ctx.reply(`Sorry, this bot only works in groups!`, {
-            reply_markup: {
-                inline_keyboard: [
-                    [
-                        {
-                            text: "Choose a group",
-                            url: `https://t.me/msgchainbot?startgroup=_`,
-                        },
-                    ],
-                ],
-            },
-        });
+        return ctx.reply(`Sorry, this bot only works in groups!`);
 
     const chainInfoText = ctx.message.text.split(" ");
     chainInfoText.shift();
     const infoMsg = chainInfoText.join(" ").trim();
-
-    let replyMsg = "";
-    if (infoMsg.length)
-        replyMsg += `Chain title: ${infoMsg}\n\n=====================`;
-    replyMsg += `\n\n${defaultMsg}`;
-    replyMsg += `\n\n<i>#${ctx.chat.id}:${ctx.message.message_id} | ${ctx.from.first_name}</i>`;
 
     const botMsg = await ctx.replyWithHTML("Please wait...");
     const botMsgId = botMsg.message_id;
@@ -69,28 +51,11 @@ bot.start(async (ctx) => {
 
 bot.command("chain", async (ctx) => {
     if (ctx.chat.type === "private")
-        return ctx.reply(`Sorry, this bot only works in groups!`, {
-            reply_markup: {
-                inline_keyboard: [
-                    [
-                        {
-                            text: "Choose a group",
-                            url: `https://t.me/msgchainbot?startgroup=_`,
-                        },
-                    ],
-                ],
-            },
-        });
+        return ctx.reply(`Sorry, this bot only works in groups!`);
 
     const chainInfoText = ctx.message.text.split(" ");
     chainInfoText.shift();
     const infoMsg = chainInfoText.join(" ").trim();
-
-    let replyMsg = "";
-    if (infoMsg.length)
-        replyMsg += `Chain title: ${infoMsg}\n\n=====================`;
-    replyMsg += `\n\n${defaultMsg}`;
-    replyMsg += `\n\n<i>#${ctx.chat.id}:${ctx.message.message_id} | ${ctx.from.first_name}</i>`;
 
     const botMsg = await ctx.replyWithHTML("Please wait...");
     const botMsgId = botMsg.message_id;
