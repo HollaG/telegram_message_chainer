@@ -76,7 +76,7 @@ export class Chain {
 
         replyMsg += `${defaultMsg}\n\n`;
 
-        replyMsg += `<i>#${chatId}:${msgId}| by ${this.by}</i>`;
+        replyMsg += `<i>#${chatId}:${msgId} | by ${this.by}</i>`;
 
         return replyMsg;
     }
