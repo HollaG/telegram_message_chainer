@@ -2,6 +2,7 @@ import { Context, Telegraf } from "telegraf";
 import { Update } from "typegram";
 import { Chain } from "./ChainClass";
 import * as fs from "fs";
+import { Message } from "telegraf/typings/core/types/typegram";
 require("dotenv").config();
 
 export let defaultMsg = `Reply to this message to continue the chain!\nA second reply will overwrite your first \n\nChains will end automatically after 1 week`;
@@ -17,6 +18,8 @@ export type Data = {
 };
 let data: Data = {};
 
+
+// Todo figure out the typescript typings for ctx and extract duplicated code into a function
 bot.start(async (ctx) => {
     if (ctx.chat.type === "private")
         return ctx.reply(`Sorry, this bot only works in groups!`, {
@@ -36,10 +39,10 @@ bot.start(async (ctx) => {
     chainInfoText.shift();
     const infoMsg = chainInfoText.join(" ").trim();
 
-
-    let replyMsg = '';
-    if (infoMsg.length) replyMsg += `Chain title: ${infoMsg}\n\n=====================`;
-    replyMsg += `\n\n${defaultMsg}`
+    let replyMsg = "";
+    if (infoMsg.length)
+        replyMsg += `Chain title: ${infoMsg}\n\n=====================`;
+    replyMsg += `\n\n${defaultMsg}`;
     replyMsg += `\n\n<i>#${ctx.chat.id}:${ctx.message.message_id} | ${ctx.from.first_name}</i>`;
 
     const botMsg = await ctx.replyWithHTML("Please wait...");
@@ -58,6 +61,52 @@ bot.start(async (ctx) => {
         }
     );
 
+    if (!data[ctx.chat.id]) data[ctx.chat.id] = {};
+    if (!data[ctx.chat.id][botMsgId]) data[ctx.chat.id][botMsgId] = chain;
+
+    backupAndClear(ctx);
+});
+
+bot.command("chain", async (ctx) => {
+    if (ctx.chat.type === "private")
+        return ctx.reply(`Sorry, this bot only works in groups!`, {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text: "Choose a group",
+                            url: `https://t.me/msgchainbot?startgroup=_`,
+                        },
+                    ],
+                ],
+            },
+        });
+
+    const chainInfoText = ctx.message.text.split(" ");
+    chainInfoText.shift();
+    const infoMsg = chainInfoText.join(" ").trim();
+
+    let replyMsg = "";
+    if (infoMsg.length)
+        replyMsg += `Chain title: ${infoMsg}\n\n=====================`;
+    replyMsg += `\n\n${defaultMsg}`;
+    replyMsg += `\n\n<i>#${ctx.chat.id}:${ctx.message.message_id} | ${ctx.from.first_name}</i>`;
+
+    const botMsg = await ctx.replyWithHTML("Please wait...");
+    const botMsgId = botMsg.message_id;
+
+    const chain = new Chain(ctx.from.first_name, infoMsg);
+
+    // edit the just sent message to add the ID and stuff at the bottom
+    ctx.telegram.editMessageText(
+        ctx.chat.id,
+        botMsgId,
+        undefined,
+        chain.generateReplyMessage(ctx.chat.id, botMsgId),
+        {
+            parse_mode: "HTML",
+        }
+    );
 
     if (!data[ctx.chat.id]) data[ctx.chat.id] = {};
     if (!data[ctx.chat.id][botMsgId]) data[ctx.chat.id][botMsgId] = chain;
@@ -85,12 +134,15 @@ bot.on("text", (ctx) => {
         memberId: ctx.from.id,
     });
 
-    // update the message   
+    // update the message
     ctx.telegram.editMessageText(
         ctx.chat.id,
         msgRepliedToId,
         undefined,
-        data[ctx.chat.id][msgRepliedToId].generateReplyMessage(ctx.chat.id, msgRepliedToId),
+        data[ctx.chat.id][msgRepliedToId].generateReplyMessage(
+            ctx.chat.id,
+            msgRepliedToId
+        ),
         { parse_mode: "HTML" }
     );
 
@@ -104,8 +156,10 @@ const backupAndClear = async (ctx: Context) => {
 
     for (const chatId in data) {
         for (const messageId in data[chatId]) {
-           
-            if (data[chatId][messageId].secondLastUpdated + sevenDays < Date.now()) {
+            if (
+                data[chatId][messageId].secondLastUpdated + sevenDays <
+                Date.now()
+            ) {
                 // edit the message to indicate that tracking has ended
 
                 await ctx.telegram.editMessageText(
@@ -138,7 +192,11 @@ try {
         for (const chatId in previousData) {
             data[chatId] = {};
             for (const messageId in previousData[chatId]) {
-                const chain = new Chain("", "", previousData[chatId][messageId]);
+                const chain = new Chain(
+                    "",
+                    "",
+                    previousData[chatId][messageId]
+                );
 
                 data[chatId][messageId] = chain;
             }
