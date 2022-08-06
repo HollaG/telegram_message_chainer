@@ -66,6 +66,13 @@ export class Chain {
         this.lastUpdated = Date.now();
     }
 
+    removeReply(memberId: number) { 
+        delete this.replies[memberId];
+
+        this.secondLastUpdated = this.lastUpdated;
+        this.lastUpdated = Date.now();
+    }
+
     generateChain() {
         const chain: string[] = [];
         Object.keys(this.replies).forEach((memberId, i) => {

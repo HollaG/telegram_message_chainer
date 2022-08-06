@@ -70,6 +70,13 @@ bot.start(async (ctx) => {
         return;
     }
 
+    if (ctx.startPayload.startsWith("inline")) {
+        ctx.reply(PROMPT_NEW_CHAIN);
+        inlineCreationData[ctx.chat.id] = 1;
+
+        return;
+    }
+
     // Check if the user shortcut the chain creation by adding text after /start
     const sanitizedTitle = sanitizeHtml(
         ctx.message?.text.replace("/start", ""),
@@ -89,9 +96,6 @@ bot.start(async (ctx) => {
 
         return;
     }
-
-    ctx.reply(PROMPT_NEW_CHAIN);
-    inlineCreationData[ctx.chat.id] = 1;
 });
 
 bot.on("text", async (ctx) => {
@@ -153,41 +157,7 @@ bot.on("text", async (ctx) => {
         });
 
         // Edit all the messages shared in chats
-        const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
-        const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
-        for (const inlineMsgId of chain.sharedInChats) {
-            ctx.telegram
-                .editMessageText(
-                    undefined,
-                    undefined,
-                    inlineMsgId,
-                    chain.generateReplyMessage(chainChatId, chainMsgId),
-                    {
-                        parse_mode: "HTML",
-                        ...generateSharedReplyMarkup(chain.id),
-                    }
-                )
-                .catch((e) => editErrorHandler(e, ctx));
-        }
-
-        // Edit the message in the PM
-        ctx.telegram
-            .editMessageText(
-                chainChatId,
-                chainMsgId,
-                undefined,
-                chain.generateReplyMessage(chainChatId, chainMsgId),
-                {
-                    parse_mode: "HTML",
-                    ...generatePMReplyMarkup(chain),
-                }
-            )
-            .catch((e) => editErrorHandler(e, ctx));
-
-        ctx.reply(SUCCESS_MESSAGE_RECEIEVED);
-
-        // delete the inline data
-        delete inlineReplyData[ctx.chat.id];
+        editMessages(chain, ctx);
     }
 
     backupAndClearInlineChains(ctx);
@@ -255,6 +225,8 @@ bot.on("chosen_inline_result", (ctx) => {
 /* Listen for when user ends their chain */
 bot.on("callback_query", async (ctx) => {
     const cbData = ctx.callbackQuery.data;
+    console.log(cbData, ctx.from?.id);
+    if (!ctx.from) return;
     if (cbData?.startsWith("end")) {
         const chainId = cbData.replace("end_", "");
         // find the chain
@@ -264,6 +236,24 @@ bot.on("callback_query", async (ctx) => {
 
         // end the chain
         endChain(chain, ctx);
+        ctx.answerCbQuery("Chain ended!")
+    }
+    if (cbData?.startsWith("remove")) {
+        const chainId = cbData.replace("remove_", "");
+        // find the chain
+        const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+        if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
+
+        // ignore if user never replied in the first place
+        if (!chain.replies[ctx.from.id]) return ctx.answerCbQuery()
+
+        // remove this user from the chain
+        chain.removeReply(ctx.from.id);
+        console.log(chain);
+        // update messages
+        editMessages(chain, ctx);
+        ctx.answerCbQuery("Message removed!")
     }
 });
 
@@ -274,8 +264,12 @@ const generateSharedReplyMarkup = (chainId: string) => {
             inline_keyboard: [
                 [
                     {
-                        text: "Add your message",
+                        text: "Add / Edit your message",
                         url,
+                    },
+                    {
+                        text: "Remove your message",
+                        callback_data: `remove_${chainId}`,
                     },
                 ],
             ],
@@ -367,6 +361,48 @@ const endChain = (chain: Chain, ctx: Context) => {
     inlineChainData = inlineChainData.filter((chain) => chain.id !== chain.id);
 
     backupAndClearInlineChains(ctx);
+};
+
+const editMessages = (chain: Chain, ctx: Context) => {
+    // Edit all the messages shared in chats
+    const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+    const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+    for (const inlineMsgId of chain.sharedInChats) {
+        ctx.telegram
+            .editMessageText(
+                undefined,
+                undefined,
+                inlineMsgId,
+                chain.generateReplyMessage(chainChatId, chainMsgId),
+                {
+                    parse_mode: "HTML",
+                    ...generateSharedReplyMarkup(chain.id),
+                }
+            )
+            .catch((e) => editErrorHandler(e, ctx));
+    }
+
+    // Edit the message in the PM
+    ctx.telegram
+        .editMessageText(
+            chainChatId,
+            chainMsgId,
+            undefined,
+            chain.generateReplyMessage(chainChatId, chainMsgId),
+            {
+                parse_mode: "HTML",
+                ...generatePMReplyMarkup(chain),
+            }
+        )
+        .catch((e) => editErrorHandler(e, ctx));
+
+    
+
+    // From a user sending a message
+    if (ctx.chat) {
+        delete inlineReplyData[ctx.chat.id];
+        ctx.reply(SUCCESS_MESSAGE_RECEIEVED);
+    }
 };
 
 const backupAndClearInlineChains = async (ctx: Context) => {
