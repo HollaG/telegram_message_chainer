@@ -18,24 +18,12 @@ export class Chain {
             first_name: string;
         };
     };
+
+
+
+    sharedInChats: string[] // string: inlineMessageId
     id: string;
-    // constructor(by: User, title: string, id: string, restoredData?: Chain) {
-    //     if (restoredData) {
-    //         this.lastUpdated = restoredData.lastUpdated;
-    //         this.by = restoredData.by;
-    //         this.replies = restoredData.replies;
-    //         this.secondLastUpdated = restoredData.secondLastUpdated;
-    //         this.title = restoredData.title;
-    //         this.id = restoredData.id
-    //     } else {
-    //         this.lastUpdated = Date.now();
-    //         this.replies = {};
-    //         this.by = by;
-    //         this.secondLastUpdated = Date.now();
-    //         this.title = title;
-    //         this.id = id;
-    //     }
-    // }
+
 
     public constructor(...args: any[]) {
         if (args.length === 1) {
@@ -47,6 +35,7 @@ export class Chain {
             this.secondLastUpdated = restoredData.secondLastUpdated;
             this.title = restoredData.title;
             this.id = restoredData.id;
+            this.sharedInChats = restoredData.sharedInChats
         } else {
             const by = args[0];
             const title = args[1];
@@ -57,6 +46,7 @@ export class Chain {
             this.secondLastUpdated = Date.now();
             this.title = title;
             this.id = id;
+            this.sharedInChats = []
         }
     }
 
@@ -101,15 +91,23 @@ export class Chain {
             const chain = this.generateChain(chatId, msgId);
             replyMsg += `${chain}`;
 
-            replyMsg += `${Object.keys(this.replies).length} 👥 responded\n`;
+            replyMsg += `${Object.keys(this.replies).length} 👥 responded\n\n`;
+        } else {
+            replyMsg += `<i>No respondents yet </i>\n\n`;
         }
 
-        replyMsg += `=====================\n\n`;
+        // replyMsg += `=====================\n\n`;
 
-        replyMsg += `${defaultMsg}\n\n`;
+        // replyMsg += `${defaultMsg}\n\n`;
 
-        replyMsg += `<i>#${chatId}:${msgId} | by ${this.by}</i>`;
+        replyMsg += `<i>#${chatId}:${msgId} | by ${this.by.first_name}</i>`;
 
         return replyMsg;
+    }
+
+    addNewSharedChat(msgId: string) {
+        console.log('adding a new shared chat')
+        this.sharedInChats.push(msgId)
+        console.log(this.sharedInChats);
     }
 }

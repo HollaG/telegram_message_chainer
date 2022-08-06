@@ -15,8 +15,7 @@ const bot: Telegraf<Context<Update>> = new Telegraf(
     process.env.BOT_TOKEN as string
 );
 
-export const ENCODER_SEPARATOR = "__"
-
+export const ENCODER_SEPARATOR = "__";
 
 export type Data = {
     [chatId: number]: {
@@ -24,8 +23,6 @@ export type Data = {
     };
 };
 let data: Data = {};
-
-
 
 // export type InlineChainData = {
 //     [creatorId: number]: Chain[];
@@ -51,10 +48,8 @@ bot.start(async (ctx) => {
     }
 
     if (ctx.startPayload.startsWith("add")) {
-        const chainId = ctx.startPayload.split(ENCODER_SEPARATOR)[1];
-        const chain = inlineChainData.find(
-            (chain) => chain.id === chainId
-        );
+        const chainId = ctx.startPayload.replace("add_", "");
+        const chain = inlineChainData.find((chain) => chain.id === chainId);
 
         if (!chain) return ctx.reply(`No chain found with id ${chainId}`);
         // prompt user to enter their chain message
@@ -63,22 +58,6 @@ bot.start(async (ctx) => {
         inlineReplyData[ctx.chat.id] = chain.id;
 
         return;
-
-        // prompt user to enter their chain message
-        // const chainCreatorId = Number(ctx.startPayload.split("_-_")[1]);
-        // const chainTitle = ctx.startPayload.split("_-_")[2];
-
-        // // find the chain
-        // const chain = inlineChainData[chainCreatorId].find(
-        //     (chain) => chain.title === chainTitle
-        // );
-
-        // if (!chain) return ctx.reply("Chain not found");
-
-        // // prompt user to enter their chain message
-        // ctx.reply(`Please enter your message for the chain "${chain.title}".`);
-
-        // inlineReplyData[ctx.chat.id] = `${chainCreatorId}_-_${chainTitle}`;
     }
 
     if (ctx.chat.type === "private")
@@ -125,7 +104,11 @@ bot.command("chain", async (ctx) => {
     const botMsg = await ctx.replyWithHTML("Please wait...");
     const botMsgId = botMsg.message_id;
 
-    const chain = new Chain(ctx.from, infoMsg, `${ctx.chat.id}${ENCODER_SEPARATOR}${botMsgId}`);
+    const chain = new Chain(
+        ctx.from,
+        infoMsg,
+        `${ctx.chat.id}${ENCODER_SEPARATOR}${botMsgId}`
+    );
 
     // edit the just sent message to add the ID and stuff at the bottom
     ctx.telegram.editMessageText(
@@ -185,7 +168,7 @@ bot.on("text", async (ctx) => {
                                 },
                                 {
                                     text: "End chain",
-                                    callback_data: "end",
+                                    callback_data: `end_${uniqueChainId}`,
                                 },
                             ],
                         ],
@@ -201,32 +184,31 @@ bot.on("text", async (ctx) => {
                 new Chain(ctx.from, sanitizedTitle, uniqueChainId)
             );
 
-            backupAndClearInlineChains(ctx);
+            
         }
 
+        // Check if user is entering a chain message for an inline chain
         if (inlineReplyData[ctx.chat.id]) {
             // check conditions
             // 1) Not empty
             // 2) Not longer than 256 characters
             const sanitizedMsg = ctx.message.text.trim();
             if (sanitizedMsg.length > 256) {
-                ctx.reply("Message must be less than 256 characters");
+                ctx.reply("Message must be less than 256 characters! Please try again.");
                 return;
             }
             if (sanitizedMsg.length === 0) {
-                ctx.reply("Message cannot be empty");
+                ctx.reply("Message cannot be empty! Please try again.");
                 return;
             }
 
             // Message successfully received
             // Create new chain and send it to the user
-            
+
             const chainId = inlineReplyData[ctx.chat.id];
 
             // find the chain
-            const chain = inlineChainData.find(
-                (chain) => chain.id === chainId
-            );
+            const chain = inlineChainData.find((chain) => chain.id === chainId);
 
             if (!chain) return ctx.reply("Chain not found");
 
@@ -239,10 +221,23 @@ bot.on("text", async (ctx) => {
                 username: ctx.from.username || "",
             });
 
-            // edit the just sent message to add the ID and stuff at the bottom
+            // Edit all the messages shared in chats
             const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
             const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+            for (const inlineMsgId of chain.sharedInChats) {
+                ctx.telegram.editMessageText(
+                    undefined,
+                    undefined,
+                    inlineMsgId,
+                    chain.generateReplyMessage(chainChatId, chainMsgId),
+                    {
+                        parse_mode: "HTML",
+                        ...generateReplyMarkup(chain.id),
+                    }
+                );
+            }
 
+            // Edit the message in the PM
             ctx.telegram.editMessageText(
                 chainChatId,
                 chainMsgId,
@@ -250,13 +245,32 @@ bot.on("text", async (ctx) => {
                 chain.generateReplyMessage(chainChatId, chainMsgId),
                 {
                     parse_mode: "HTML",
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    switch_inline_query: chain.title,
+                                    text: "Share chain",
+                                },
+                                {
+                                    text: "End chain",
+                                    callback_data: `end_${chain.id}`,
+                                },
+                            ],
+                        ],
+                    },
                 }
             );
 
+            ctx.reply(`Your message has been received.`)
+
             // delete the inline data
             delete inlineReplyData[ctx.chat.id];
+
+            
         }
     }
+    backupAndClearInlineChains(ctx);
 
     // ignore messages not a reply
     if (!ctx.message.reply_to_message) return;
@@ -290,10 +304,8 @@ bot.on("text", async (ctx) => {
 });
 
 /* Inline Queries */
-bot.on("inline_query", async (ctx) => {
-    console.log("Hello from inline query");
-    const query = ctx.inlineQuery.query.trim();
-    console.log(ctx.inlineQuery);
+bot.on("inline_query", async (ctx) => {  
+    const query = ctx.inlineQuery.query.trim();    
     // Look for the chain belonging to this user with the specified search terms only if it exists
 
     const chains = inlineChainData.filter(
@@ -309,32 +321,19 @@ bot.on("inline_query", async (ctx) => {
         return;
     } else {
         const mappedChains: InlineQueryResultArticle[] = chains.map((chain) => {
-            const url = `https://t.me/msgchainbot?start=add_${chain.id}`
-          
+            const url = `https://t.me/msgchainbot?start=add_${chain.id}`;
+
+            const chatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+            const msgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
             return {
                 type: "article",
                 id: chain.id,
                 title: chain.title,
                 input_message_content: {
-                    message_text: chain.title,
+                    message_text: chain.generateReplyMessage(chatId, msgId),
                     parse_mode: "HTML",
                 },
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: "Add your message",
-                                url,
-                            },
-                        ],
-                        [
-                            {
-                                text: "Activate chain",
-                                callback_data: "activate",
-                            },
-                        ],
-                    ],
-                },
+                ...generateReplyMarkup(chain.id),
             };
         });
         ctx.answerInlineQuery(mappedChains, {
@@ -345,97 +344,49 @@ bot.on("inline_query", async (ctx) => {
     }
 
     return;
-    // console.log(inlineChainData[ctx.from.id]);
-    // if (inlineChainData[ctx.from.id]) {
-    //     const chains = inlineChainData[ctx.from.id].filter((chain) => {
-    //         // match the chain title
-    //         const regex = `/.*${query}.*/i`;
-    //         console.log({ regex });
-    //         if (chain.title.includes(query)) return true;
-    //     });
+   
+});
 
-    //     console.log({ chains });
-    //     if (chains.length) {
-    //         const inlineAnswers: InlineQueryResultArticle[] = chains.map(
-    //             (chain) => ({
-    //                 type: "article",
-    //                 id: "2",
+/* Listen for when the user chooses a result from the inline query to share a chain */
+bot.on("chosen_inline_result", (ctx) => {
+    // chain shared with a group
+    // if (!ctx.chat || !ctx.chat.id) return
+    console.log("Shared chain");
+    console.log(ctx);
 
-    //                 thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
+    const chainId = ctx.chosenInlineResult.result_id;
+    const msgId = ctx.chosenInlineResult.inline_message_id || "";
 
-    //                 title: chain.title,
-    //                 input_message_content: {
-    //                     message_text: chain.title,
-    //                 },
-    //                 reply_markup: {
-    //                     inline_keyboard: [
-    //                         [
-    //                             {
-    //                                 text: "Add your message",
-    //                                 url: `https://t.me/msgchainbot?start=add_${chain.id}`,
-    //                             },
-    //                         ],
-    //                         [
-    //                             {
-    //                                 text: "Activate chain",
-    //                                 callback_data: "activate",
-    //                             },
-    //                         ],
-    //                     ],
-    //                 },
-    //             })
-    //         );
-    //         const msg = await ctx.answerInlineQuery(
-    //             inlineAnswers,
+    // find the chain
+    const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-    //             {
-    //                 switch_pm_parameter: "inline",
-    //                 switch_pm_text: "Create a new chain",
-    //                 cache_time: 0,
-    //             }
-    //         );
-    //     } else {
-    //         ctx.answerInlineQuery(
-    //             [
-    //                 {
-    //                     type: "photo",
-    //                     id: "1",
-    //                     photo_url: "https://i.imgur.com/FYEGVYV.jpg",
-    //                     thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
-    //                 },
-    //             ],
+    if (!chain) return console.error("ERROR: chain not found");
 
-    //             {
-    //                 switch_pm_parameter: "inline",
-    //                 switch_pm_text: "Create a new chain",
-    //                 cache_time: 0,
-    //             }
-    //         );
-    //     }
-    // } else {
-    //     ctx.answerInlineQuery(
-    //         [
-    //             {
-    //                 type: "photo",
-    //                 id: "1",
-    //                 photo_url: "https://i.imgur.com/FYEGVYV.jpg",
-    //                 thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
-    //             },
-    //         ],
+    // store the msgId for future editing
+    chain.addNewSharedChat(msgId);
 
-    //         {
-    //             switch_pm_parameter: "inline",
-    //             switch_pm_text: "Create a new chain",
-    //             cache_time: 0,
-    //         }
-    //     );
-    // }
+    backupAndClearInlineChains(ctx)
 });
 
 // bot.on('callback_query', async (ctx) => {
 //     ctx.telegram.editMessageText(ctx.chat?.id, )
 // })
 
+const generateReplyMarkup = (chainId: string) => {
+    const url = `https://t.me/msgchainbot?start=add_${chainId}`;
+    return {
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    {
+                        text: "Add your message",
+                        url,
+                    },
+                ],
+            ],
+        },
+    };
+};
 // handle loading from backup file
 const backupAndClear = async (ctx: Context) => {
     // Check for and clear any chains that are more than 7 days old
@@ -470,6 +421,7 @@ const backupAndClear = async (ctx: Context) => {
     });
 };
 
+
 const backupAndClearInlineChains = async (ctx: Context) => {
     // todo : clear
     fs.writeFile(
@@ -496,6 +448,14 @@ try {
             }
         }
     }
+
+
+    const previousInlineData: Chain[] = JSON.parse(fs.readFileSync("inlineChainData.json", "utf8"));
+    if (previousInlineData.length) { 
+        console.log("Reloading previous inline data");
+        inlineChainData = previousInlineData.map(chain => new Chain(chain));
+    }
+
 } catch (e: any) {
     if (e.code === "ENOENT") {
         console.log("Backup file not found, backup not restored");
