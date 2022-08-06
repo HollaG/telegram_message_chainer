@@ -97,10 +97,6 @@ export class Chain {
             replyMsg += `<i>No respondents yet </i>\n\n`;
         }
 
-        // replyMsg += `=====================\n\n`;
-
-        // replyMsg += `${defaultMsg}\n\n`;
-
         replyMsg += `<i>#${chatId}:${msgId} | by ${this.by.first_name}</i>`;
 
         return replyMsg;

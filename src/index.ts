@@ -15,8 +15,6 @@ const sanitizeOptions = {
     allowedAttributes: {},
 };
 
-export let defaultMsg = `Reply to this message to continue the chain!\nA second reply will overwrite your first \n\nChains will end automatically after 1 week`;
-
 const bot: Telegraf<Context<Update>> = new Telegraf(
     process.env.BOT_TOKEN as string
 );
@@ -34,6 +32,10 @@ const ERROR_CHAIN_MESSAGE_TOO_LONG = `Sorry, the message of the chain must be le
 const ERROR_CHAIN_MESSAGE_TOO_SHORT = `Sorry, the message of the chain must be at least 1 character long.`;
 
 const SUCCESS_MESSAGE_RECEIEVED = "Your message has been received!";
+
+const PROMPT_NEW_CHAIN =
+    "Let's create a new chain. Please send me your chain title.";
+
 let inlineChainData: Chain[] = [];
 
 let inlineCreationData: {
@@ -50,7 +52,7 @@ bot.start(async (ctx) => {
         const chainId = ctx.startPayload.replace("add_", "");
         const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-        if (!chain) return ctx.reply(`No chain found with id ${chainId}`);
+        if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
 
         // prompt user to enter their chain message
         // Let user copy their previous message, if they sent it
@@ -60,22 +62,24 @@ bot.start(async (ctx) => {
         let message = `Please enter your message for the chain "${chain.title}".`;
         if (userMessage) message += `\nYour previous message is below:`;
 
-        ctx.reply(message);
+        await ctx.reply(message);
 
-        if (userMessage) ctx.reply(userMessage);
+        if (userMessage) await ctx.reply(userMessage);
         inlineReplyData[ctx.chat.id] = chain.id;
 
         return;
     }
 
     // Check if the user shortcut the chain creation by adding text after /start
-    console.log(ctx.message.text)
-    const sanitizedTitle = sanitizeHtml(ctx.message?.text.replace("/start", "")).trim();
+    const sanitizedTitle = sanitizeHtml(
+        ctx.message?.text.replace("/start", ""),
+        sanitizeOptions
+    ).trim();
     if (sanitizedTitle.length) {
         // check if inputText is 0 < char < 256
-        if (sanitizedTitle.length < 1 ) {
+        if (sanitizedTitle.length < 1) {
             return ctx.reply(ERROR_CHAIN_TITLE_TOO_SHORT);
-        } 
+        }
         if (sanitizedTitle.length > 256) {
             return ctx.reply(ERROR_CHAIN_TITLE_TOO_LONG);
         }
@@ -83,10 +87,10 @@ bot.start(async (ctx) => {
         // start the chain
         await createChain(ctx, sanitizedTitle);
 
-        return
+        return;
     }
 
-    ctx.reply("Let's create a new chain. Please send me your chain title.");
+    ctx.reply(PROMPT_NEW_CHAIN);
     inlineCreationData[ctx.chat.id] = 1;
 });
 
@@ -96,7 +100,10 @@ bot.on("text", async (ctx) => {
         // check conditions
         // 1) Not empty
         // 2) Not longer than 256 characters
-        const sanitizedTitle = sanitizeHtml(ctx.message.text.trim());
+        const sanitizedTitle = sanitizeHtml(
+            ctx.message.text,
+            sanitizeOptions
+        ).trim();
         if (sanitizedTitle.length > 256) {
             ctx.reply(ERROR_CHAIN_TITLE_TOO_LONG);
             return;
@@ -107,7 +114,7 @@ bot.on("text", async (ctx) => {
         }
 
         // Chain title successfully received
-        // Create new chain and send it to the user    
+        // Create new chain and send it to the user
         await createChain(ctx, sanitizedTitle);
     }
 
@@ -149,29 +156,33 @@ bot.on("text", async (ctx) => {
         const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
         const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
         for (const inlineMsgId of chain.sharedInChats) {
-            ctx.telegram.editMessageText(
-                undefined,
-                undefined,
-                inlineMsgId,
-                chain.generateReplyMessage(chainChatId, chainMsgId),
-                {
-                    parse_mode: "HTML",
-                    ...generateSharedReplyMarkup(chain.id),
-                }
-            );
+            ctx.telegram
+                .editMessageText(
+                    undefined,
+                    undefined,
+                    inlineMsgId,
+                    chain.generateReplyMessage(chainChatId, chainMsgId),
+                    {
+                        parse_mode: "HTML",
+                        ...generateSharedReplyMarkup(chain.id),
+                    }
+                )
+                .catch((e) => editErrorHandler(e, ctx));
         }
 
         // Edit the message in the PM
-        ctx.telegram.editMessageText(
-            chainChatId,
-            chainMsgId,
-            undefined,
-            chain.generateReplyMessage(chainChatId, chainMsgId),
-            {
-                parse_mode: "HTML",
-                ...generatePMReplyMarkup(chain),
-            }
-        );
+        ctx.telegram
+            .editMessageText(
+                chainChatId,
+                chainMsgId,
+                undefined,
+                chain.generateReplyMessage(chainChatId, chainMsgId),
+                {
+                    parse_mode: "HTML",
+                    ...generatePMReplyMarkup(chain),
+                }
+            )
+            .catch((e) => editErrorHandler(e, ctx));
 
         ctx.reply(SUCCESS_MESSAGE_RECEIEVED);
 
@@ -227,9 +238,6 @@ bot.on("inline_query", async (ctx) => {
 bot.on("chosen_inline_result", (ctx) => {
     // chain shared with a group
     // if (!ctx.chat || !ctx.chat.id) return
-    console.log("Shared chain");
-    console.log(ctx);
-
     const chainId = ctx.chosenInlineResult.result_id;
     const msgId = ctx.chosenInlineResult.inline_message_id || "";
 
@@ -295,7 +303,7 @@ const generatePMReplyMarkup = (chain: Chain) => {
 };
 
 const createChain = async (ctx: Context, sanitizedTitle: string) => {
-    if (!ctx.chat) return
+    if (!ctx.chat) return;
     const msg = await ctx.reply(`Please wait...`);
 
     const msgId = msg.message_id;
@@ -305,54 +313,60 @@ const createChain = async (ctx: Context, sanitizedTitle: string) => {
     // save the chain
     inlineChainData.push(chain);
 
-    await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        msgId,
-        undefined,
-        chain.generateReplyMessage(ctx.chat.id, msgId),
-        {
-            parse_mode: "HTML",
-            ...generatePMReplyMarkup(chain),
-        }
-    );
+    ctx.telegram
+        .editMessageText(
+            ctx.chat.id,
+            msgId,
+            undefined,
+            chain.generateReplyMessage(ctx.chat.id, msgId),
+            {
+                parse_mode: "HTML",
+                ...generatePMReplyMarkup(chain),
+            }
+        )
+        .catch((e) => editErrorHandler(e, ctx));
 
     delete inlineCreationData[ctx.chat.id];
-} 
+};
 
 const endChain = (chain: Chain, ctx: Context) => {
-    chain.endChain()
+    chain.endChain();
 
     const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
     const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
 
     // Edit group messages
     for (const inlineMsgId of chain.sharedInChats) {
-        ctx.telegram.editMessageText(
+        ctx.telegram
+            .editMessageText(
+                undefined,
+                undefined,
+                inlineMsgId,
+                chain.generateReplyMessage(chainChatId, chainMsgId),
+                {
+                    parse_mode: "HTML",
+                }
+            )
+            .catch((e) => editErrorHandler(e, ctx));
+    }
+
+    // Edit pm message
+    ctx.telegram
+        .editMessageText(
+            chainChatId,
+            chainMsgId,
             undefined,
-            undefined,
-            inlineMsgId,
             chain.generateReplyMessage(chainChatId, chainMsgId),
             {
                 parse_mode: "HTML",
             }
-        );
-    }
-
-    // Edit pm message
-    ctx.telegram.editMessageText(
-        chainChatId,
-        chainMsgId,
-        undefined,
-        chain.generateReplyMessage(chainChatId, chainMsgId),
-        {
-            parse_mode: "HTML",
-        }
-    );
+        )
+        .catch((e) => editErrorHandler(e, ctx));
 
     // remove the chain from the list
     inlineChainData = inlineChainData.filter((chain) => chain.id !== chain.id);
 
-    backupAndClearInlineChains(ctx)
+    backupAndClearInlineChains(ctx);
 };
 
 const backupAndClearInlineChains = async (ctx: Context) => {
@@ -376,6 +390,29 @@ const backupAndClearInlineChains = async (ctx: Context) => {
     );
 };
 
+const editErrorHandler = (e: any, ctx: Context) => {
+    console.log(e);
+    if (e.response.error_code === 429) {
+        // too many requests, timeout and try again
+        let retryTime = (e.response.parameters.retry_after + 1) * 1000;
+
+        setTimeout(() => {
+            ctx.telegram.editMessageText(
+                e.on.payload.chat_id,
+                e.on.payload.message_id,
+                e.on.payload.inline_message_id,
+                e.on.payload.text,
+                {
+                    parse_mode: e.on.payload.parse_mode,
+                    disable_web_page_preview:
+                        e.on.payload.disable_web_page_preview,
+                    reply_markup: e.on.payload.reply_markup,
+                }
+            );
+        }, retryTime);
+    }
+};
+
 // reload objects into memory if crash
 try {
     const previousInlineData: Chain[] = JSON.parse(
@@ -397,4 +434,13 @@ try {
     }
 }
 
-bot.launch();
+bot.launch().then(() => console.log("Bot is running!"));
+
+// Enable graceful stop
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
+
+process.on("uncaughtException", console.log);
+process.on("unhandledRejection", console.log);
+process.on("warning", console.log);
+process.on("error", console.log);
