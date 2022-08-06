@@ -9,6 +9,12 @@ import {
 } from "telegraf/typings/core/types/typegram";
 require("dotenv").config();
 
+import sanitizeHtml from "sanitize-html";
+const sanitizeOptions = {
+    allowedTags: [],
+    allowedAttributes: {},
+};
+
 export let defaultMsg = `Reply to this message to continue the chain!\nA second reply will overwrite your first \n\nChains will end automatically after 1 week`;
 
 const bot: Telegraf<Context<Update>> = new Telegraf(
@@ -17,12 +23,17 @@ const bot: Telegraf<Context<Update>> = new Telegraf(
 
 export const ENCODER_SEPARATOR = "__";
 
+const CHAIN_TIMEOUT = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 const ERROR_CHAIN_TITLE_TOO_LONG = `Sorry, the title of the chain must be less than 256 characters long.`;
 const ERROR_CHAIN_TITLE_TOO_SHORT = `Sorry, the title of the chain must be at least 1 character long.`;
+
+const ERROR_CHAIN_NOT_FOUND = `Sorry, the chain was not found`;
 
 const ERROR_CHAIN_MESSAGE_TOO_LONG = `Sorry, the message of the chain must be less than 256 characters long.`;
 const ERROR_CHAIN_MESSAGE_TOO_SHORT = `Sorry, the message of the chain must be at least 1 character long.`;
 
+const SUCCESS_MESSAGE_RECEIEVED = "Your message has been received!";
 let inlineChainData: Chain[] = [];
 
 let inlineCreationData: {
@@ -42,8 +53,16 @@ bot.start(async (ctx) => {
         if (!chain) return ctx.reply(`No chain found with id ${chainId}`);
 
         // prompt user to enter their chain message
-        ctx.reply(`Please enter your message for the chain "${chain.title}".`);
+        // Let user copy their previous message, if they sent it
+        // check if user entered a message
+        const userMessage = chain.replies[ctx.from.id]?.text;
 
+        let message = `Please enter your message for the chain "${chain.title}".`;
+        if (userMessage) message += `\nYour previous message is below:`;
+
+        ctx.reply(message);
+
+        if (userMessage) ctx.reply(userMessage);
         inlineReplyData[ctx.chat.id] = chain.id;
 
         return;
@@ -59,15 +78,13 @@ bot.on("text", async (ctx) => {
         // check conditions
         // 1) Not empty
         // 2) Not longer than 256 characters
-        const sanitizedTitle = ctx.message.text.trim();
+        const sanitizedTitle = sanitizeHtml(ctx.message.text.trim());
         if (sanitizedTitle.length > 256) {
-            ctx.reply(
-                "Chain title must be less than 256 characters. Please try again"
-            );
+            ctx.reply(ERROR_CHAIN_TITLE_TOO_LONG);
             return;
         }
         if (sanitizedTitle.length === 0) {
-            ctx.reply("Chain title cannot be empty");
+            ctx.reply(ERROR_CHAIN_TITLE_TOO_SHORT);
             return;
         }
 
@@ -106,7 +123,6 @@ bot.on("text", async (ctx) => {
         delete inlineCreationData[ctx.chat.id];
 
         // save the chain
-
         inlineChainData.push(
             new Chain(ctx.from, sanitizedTitle, uniqueChainId)
         );
@@ -119,13 +135,11 @@ bot.on("text", async (ctx) => {
         // 2) Not longer than 256 characters
         const sanitizedMsg = ctx.message.text.trim();
         if (sanitizedMsg.length > 256) {
-            ctx.reply(
-                "Message must be less than 256 characters! Please try again."
-            );
+            ctx.reply(ERROR_CHAIN_MESSAGE_TOO_LONG);
             return;
         }
         if (sanitizedMsg.length === 0) {
-            ctx.reply("Message cannot be empty! Please try again.");
+            ctx.reply(ERROR_CHAIN_MESSAGE_TOO_SHORT);
             return;
         }
 
@@ -137,7 +151,7 @@ bot.on("text", async (ctx) => {
         // find the chain
         const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-        if (!chain) return ctx.reply("Chain not found");
+        if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
 
         // add the message to the chain
         chain.updateReplies({
@@ -189,7 +203,7 @@ bot.on("text", async (ctx) => {
             }
         );
 
-        ctx.reply(`Your message has been received.`);
+        ctx.reply(SUCCESS_MESSAGE_RECEIEVED);
 
         // delete the inline data
         delete inlineReplyData[ctx.chat.id];
@@ -216,7 +230,6 @@ bot.on("inline_query", async (ctx) => {
         return;
     } else {
         const mappedChains: InlineQueryResultArticle[] = chains.map((chain) => {
-            
             const chatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
             const msgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
             return {
@@ -277,8 +290,53 @@ const generateReplyMarkup = (chainId: string) => {
     };
 };
 
+const deleteChain = (chain: Chain, ctx: Context) => {
+    const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+    const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+
+    // Edit group messages
+    for (const inlineMsgId of chain.sharedInChats) {
+        ctx.telegram.editMessageText(
+            undefined,
+            undefined,
+            inlineMsgId,
+            `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n${chain.generateReplyMessage(
+                chainChatId,
+                chainMsgId
+            )}`,
+            {
+                parse_mode: "HTML",
+            }
+        );
+    }
+
+    // Edit pm message
+    ctx.telegram.editMessageText(
+        chainChatId,
+        chainMsgId,
+        undefined,
+        `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n${chain.generateReplyMessage(
+            chainChatId,
+            chainMsgId
+        )}`,
+        {
+            parse_mode: "HTML",
+        }
+    );
+};
+
 const backupAndClearInlineChains = async (ctx: Context) => {
-    // todo : clear
+    const stillRunningChains: Chain[] = [];
+
+    inlineChainData.forEach((chain) => {
+        if (chain.lastUpdated > Date.now() - CHAIN_TIMEOUT) {
+            stillRunningChains.push(chain);
+        } else {
+            deleteChain(chain, ctx);
+        }
+    });
+
+    inlineChainData = stillRunningChains;
     fs.writeFile(
         "inlineChainData.json",
         JSON.stringify(inlineChainData),

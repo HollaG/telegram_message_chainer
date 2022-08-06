@@ -1,5 +1,4 @@
-import { User } from "telegraf/typings/core/types/typegram";
-import { Data, defaultMsg } from ".";
+
 
 type BasicDetails = {
     id: number;
