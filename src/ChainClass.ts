@@ -1,5 +1,3 @@
-
-
 type BasicDetails = {
     id: number;
     first_name: string;
@@ -18,11 +16,10 @@ export class Chain {
         };
     };
 
-
-
-    sharedInChats: string[] // string: inlineMessageId
+    sharedInChats: string[]; // string: inlineMessageId
     id: string;
 
+    ended = false;
 
     public constructor(...args: any[]) {
         if (args.length === 1) {
@@ -34,7 +31,7 @@ export class Chain {
             this.secondLastUpdated = restoredData.secondLastUpdated;
             this.title = restoredData.title;
             this.id = restoredData.id;
-            this.sharedInChats = restoredData.sharedInChats
+            this.sharedInChats = restoredData.sharedInChats;
         } else {
             const by = args[0];
             const title = args[1];
@@ -45,7 +42,7 @@ export class Chain {
             this.secondLastUpdated = Date.now();
             this.title = title;
             this.id = id;
-            this.sharedInChats = []
+            this.sharedInChats = [];
         }
     }
 
@@ -69,25 +66,30 @@ export class Chain {
         this.lastUpdated = Date.now();
     }
 
-    generateChain(chatId: number, msgId: number) {
-        const chain = [];
-        for (const memberId in this.replies) {
+    generateChain() {
+        const chain: string[] = [];
+        Object.keys(this.replies).forEach((memberId, i) => {
             chain.push(
-                `<b>${this.replies[memberId].first_name}</b>\n${this.replies[memberId].text}\n\n`
+                `<b>${i+1}. ${this.replies[Number(memberId)].first_name}</b>\n${this.replies[Number(memberId)].text}\n\n`
             );
-        }
+        })      
 
         return chain.join("");
     }
 
     generateReplyMessage(chatId: number, msgId: number) {
         let replyMsg = "";
+
+        if (this.ended) {
+            replyMsg+= `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n`;
+        }
+
         if (this.title.length) {
             replyMsg += `<b><u>${this.title}</u></b>\n\n`;
         }
 
         if (Object.keys(this.replies).length) {
-            const chain = this.generateChain(chatId, msgId);
+            const chain = this.generateChain();
             replyMsg += `${chain}`;
 
             replyMsg += `${Object.keys(this.replies).length} 👥 responded\n\n`;
@@ -105,8 +107,14 @@ export class Chain {
     }
 
     addNewSharedChat(msgId: string) {
-        console.log('adding a new shared chat')
-        this.sharedInChats.push(msgId)
+        console.log("adding a new shared chat");
+        this.sharedInChats.push(msgId);
         console.log(this.sharedInChats);
     }
+
+    endChain() {
+        this.ended = true;
+    }
+
+    
 }

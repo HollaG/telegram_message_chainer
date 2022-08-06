@@ -96,6 +96,10 @@ bot.on("text", async (ctx) => {
         const msgId = msg.message_id;
 
         const uniqueChainId = `${ctx.chat.id}${ENCODER_SEPARATOR}${msgId}`;
+        const chain = new Chain(ctx.from, sanitizedTitle, uniqueChainId);
+        // save the chain
+        inlineChainData.push(chain);
+
         await ctx.telegram.editMessageText(
             ctx.chat.id,
             msgId,
@@ -103,29 +107,11 @@ bot.on("text", async (ctx) => {
             msgText,
             {
                 parse_mode: "HTML",
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                switch_inline_query: sanitizedTitle,
-                                text: "Share chain",
-                            },
-                            {
-                                text: "End chain",
-                                callback_data: `end_${uniqueChainId}`,
-                            },
-                        ],
-                    ],
-                },
+                ...generatePMReplyMarkup(chain),
             }
         );
 
         delete inlineCreationData[ctx.chat.id];
-
-        // save the chain
-        inlineChainData.push(
-            new Chain(ctx.from, sanitizedTitle, uniqueChainId)
-        );
     }
 
     // Check if user is entering a chain message for an inline chain
@@ -173,7 +159,7 @@ bot.on("text", async (ctx) => {
                 chain.generateReplyMessage(chainChatId, chainMsgId),
                 {
                     parse_mode: "HTML",
-                    ...generateReplyMarkup(chain.id),
+                    ...generateSharedReplyMarkup(chain.id),
                 }
             );
         }
@@ -186,20 +172,7 @@ bot.on("text", async (ctx) => {
             chain.generateReplyMessage(chainChatId, chainMsgId),
             {
                 parse_mode: "HTML",
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                switch_inline_query: chain.title,
-                                text: "Share chain",
-                            },
-                            {
-                                text: "End chain",
-                                callback_data: `end_${chain.id}`,
-                            },
-                        ],
-                    ],
-                },
+                ...generatePMReplyMarkup(chain),
             }
         );
 
@@ -240,7 +213,7 @@ bot.on("inline_query", async (ctx) => {
                     message_text: chain.generateReplyMessage(chatId, msgId),
                     parse_mode: "HTML",
                 },
-                ...generateReplyMarkup(chain.id),
+                ...generateSharedReplyMarkup(chain.id),
             };
         });
         ctx.answerInlineQuery(mappedChains, {
@@ -274,7 +247,22 @@ bot.on("chosen_inline_result", (ctx) => {
     backupAndClearInlineChains(ctx);
 });
 
-const generateReplyMarkup = (chainId: string) => {
+/* Listen for when user ends their chain */
+bot.on("callback_query", async (ctx) => {
+    const cbData = ctx.callbackQuery.data;
+    if (cbData?.startsWith("end")) {
+        const chainId = cbData.replace("end_", "");
+        // find the chain
+        const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+        if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
+
+        // end the chain
+        endChain(chain, ctx);
+    }
+});
+
+const generateSharedReplyMarkup = (chainId: string) => {
     const url = `https://t.me/msgchainbot?start=add_${chainId}`;
     return {
         reply_markup: {
@@ -290,7 +278,28 @@ const generateReplyMarkup = (chainId: string) => {
     };
 };
 
-const deleteChain = (chain: Chain, ctx: Context) => {
+const generatePMReplyMarkup = (chain: Chain) => {
+    return {
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    {
+                        switch_inline_query: chain.title,
+                        text: "Share chain",
+                    },
+                    {
+                        text: "End chain",
+                        callback_data: `end_${chain.id}`,
+                    },
+                ],
+            ],
+        },
+    };
+};
+
+const endChain = (chain: Chain, ctx: Context) => {
+    chain.endChain()
+
     const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
     const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
 
@@ -300,10 +309,7 @@ const deleteChain = (chain: Chain, ctx: Context) => {
             undefined,
             undefined,
             inlineMsgId,
-            `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n${chain.generateReplyMessage(
-                chainChatId,
-                chainMsgId
-            )}`,
+            chain.generateReplyMessage(chainChatId, chainMsgId),
             {
                 parse_mode: "HTML",
             }
@@ -315,24 +321,23 @@ const deleteChain = (chain: Chain, ctx: Context) => {
         chainChatId,
         chainMsgId,
         undefined,
-        `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n${chain.generateReplyMessage(
-            chainChatId,
-            chainMsgId
-        )}`,
+        chain.generateReplyMessage(chainChatId, chainMsgId),
         {
             parse_mode: "HTML",
         }
     );
+
+    backupAndClearInlineChains(ctx)
 };
 
 const backupAndClearInlineChains = async (ctx: Context) => {
     const stillRunningChains: Chain[] = [];
 
     inlineChainData.forEach((chain) => {
-        if (chain.lastUpdated > Date.now() - CHAIN_TIMEOUT) {
+        if (chain.lastUpdated > Date.now() - CHAIN_TIMEOUT && !chain.ended) {
             stillRunningChains.push(chain);
         } else {
-            deleteChain(chain, ctx);
+            endChain(chain, ctx);
         }
     });
 
