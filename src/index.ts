@@ -15,6 +15,9 @@ const bot: Telegraf<Context<Update>> = new Telegraf(
     process.env.BOT_TOKEN as string
 );
 
+export const ENCODER_SEPARATOR = "__"
+
+
 export type Data = {
     [chatId: number]: {
         [messageId: number]: Chain;
@@ -22,17 +25,20 @@ export type Data = {
 };
 let data: Data = {};
 
-export type InlineChainData = {
-    [creatorId: number]: Chain[];
-};
-let inlineChainData: InlineChainData = {};
+
+
+// export type InlineChainData = {
+//     [creatorId: number]: Chain[];
+// };
+
+let inlineChainData: Chain[] = [];
 
 let inlineCreationData: {
     [chatId: number]: 1;
 } = {};
 
 let inlineReplyData: {
-    [chatId: number]: string; // `${creatorId}_-_${chainTitle}`
+    [chatId: number]: string; // `chain.id`
 } = {};
 
 // Todo figure out the typescript typings for ctx and extract duplicated code into a function
@@ -45,21 +51,34 @@ bot.start(async (ctx) => {
     }
 
     if (ctx.startPayload.startsWith("add")) {
-        // prompt user to enter their chain message
-        const chainCreatorId = Number(ctx.startPayload.split("_-_")[1]);
-        const chainTitle = ctx.startPayload.split("_-_")[2];
-
-        // find the chain
-        const chain = inlineChainData[chainCreatorId].find(
-            (chain) => chain.title === chainTitle
+        const chainId = ctx.startPayload.split(ENCODER_SEPARATOR)[1];
+        const chain = inlineChainData.find(
+            (chain) => chain.id === chainId
         );
 
-        if (!chain) return ctx.reply("Chain not found");
-
+        if (!chain) return ctx.reply(`No chain found with id ${chainId}`);
         // prompt user to enter their chain message
         ctx.reply(`Please enter your message for the chain "${chain.title}".`);
 
-        inlineReplyData[ctx.chat.id] = `${chainCreatorId}_-_${chainTitle}`;
+        inlineReplyData[ctx.chat.id] = chain.id;
+
+        return;
+
+        // prompt user to enter their chain message
+        // const chainCreatorId = Number(ctx.startPayload.split("_-_")[1]);
+        // const chainTitle = ctx.startPayload.split("_-_")[2];
+
+        // // find the chain
+        // const chain = inlineChainData[chainCreatorId].find(
+        //     (chain) => chain.title === chainTitle
+        // );
+
+        // if (!chain) return ctx.reply("Chain not found");
+
+        // // prompt user to enter their chain message
+        // ctx.reply(`Please enter your message for the chain "${chain.title}".`);
+
+        // inlineReplyData[ctx.chat.id] = `${chainCreatorId}_-_${chainTitle}`;
     }
 
     if (ctx.chat.type === "private")
@@ -72,7 +91,11 @@ bot.start(async (ctx) => {
     const botMsg = await ctx.replyWithHTML("Please wait...");
     const botMsgId = botMsg.message_id;
 
-    const chain = new Chain(ctx.from.first_name, infoMsg);
+    const chain = new Chain(
+        { first_name: ctx.from.first_name, id: ctx.from.id },
+        infoMsg,
+        `${ctx.chat.id}${ENCODER_SEPARATOR}${botMsgId}`
+    );
 
     // edit the just sent message to add the ID and stuff at the bottom
     ctx.telegram.editMessageText(
@@ -102,7 +125,7 @@ bot.command("chain", async (ctx) => {
     const botMsg = await ctx.replyWithHTML("Please wait...");
     const botMsgId = botMsg.message_id;
 
-    const chain = new Chain(ctx.from.first_name, infoMsg);
+    const chain = new Chain(ctx.from, infoMsg, `${ctx.chat.id}${ENCODER_SEPARATOR}${botMsgId}`);
 
     // edit the just sent message to add the ID and stuff at the bottom
     ctx.telegram.editMessageText(
@@ -122,7 +145,6 @@ bot.command("chain", async (ctx) => {
 });
 
 bot.on("text", async (ctx) => {
-    // ignore private msgs
     if (ctx.chat.type === "private") {
         // Check if user is entering a chain title for an inline chain
         if (inlineCreationData[ctx.chat.id]) {
@@ -146,7 +168,7 @@ bot.on("text", async (ctx) => {
 
             const msgId = msg.message_id;
 
-            const uniqueChainId = `${ctx.chat.id}:${msgId}`;
+            const uniqueChainId = `${ctx.chat.id}${ENCODER_SEPARATOR}${msgId}`;
             await ctx.telegram.editMessageText(
                 ctx.chat.id,
                 msgId,
@@ -174,10 +196,9 @@ bot.on("text", async (ctx) => {
             delete inlineCreationData[ctx.chat.id];
 
             // save the chain
-            if (!inlineChainData[ctx.chat.id])
-                inlineChainData[ctx.chat.id] = [];
-            inlineChainData[ctx.chat.id].push(
-                new Chain(ctx.from.first_name, sanitizedTitle)
+
+            inlineChainData.push(
+                new Chain(ctx.from, sanitizedTitle, uniqueChainId)
             );
 
             backupAndClearInlineChains(ctx);
@@ -199,14 +220,12 @@ bot.on("text", async (ctx) => {
 
             // Message successfully received
             // Create new chain and send it to the user
-            const chainCreatorId = Number(
-                inlineReplyData[ctx.chat.id].split("_-_")[0]
-            );
-            const chainTitle = inlineReplyData[ctx.chat.id].split("_-_")[1];
+            
+            const chainId = inlineReplyData[ctx.chat.id];
 
             // find the chain
-            const chain = inlineChainData[chainCreatorId].find(
-                (chain) => chain.title === chainTitle
+            const chain = inlineChainData.find(
+                (chain) => chain.id === chainId
             );
 
             if (!chain) return ctx.reply("Chain not found");
@@ -221,15 +240,18 @@ bot.on("text", async (ctx) => {
             });
 
             // edit the just sent message to add the ID and stuff at the bottom
-            // ctx.telegram.editMessageText(
-            //     ctx.chat.id,
-            //     chain.lastMessageId,
-            //     undefined,
-            //     chain.generateReplyMessage(ctx.chat.id, chain.lastMessageId),
-            //     {
-            //         parse_mode: "HTML",
-            //     }
-            // );
+            const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+            const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+
+            ctx.telegram.editMessageText(
+                chainChatId,
+                chainMsgId,
+                undefined,
+                chain.generateReplyMessage(chainChatId, chainMsgId),
+                {
+                    parse_mode: "HTML",
+                }
+            );
 
             // delete the inline data
             delete inlineReplyData[ctx.chat.id];
@@ -273,93 +295,141 @@ bot.on("inline_query", async (ctx) => {
     const query = ctx.inlineQuery.query.trim();
     console.log(ctx.inlineQuery);
     // Look for the chain belonging to this user with the specified search terms only if it exists
-    console.log(inlineChainData[ctx.from.id]);
-    if (inlineChainData[ctx.from.id]) {
-        const chains = inlineChainData[ctx.from.id].filter((chain) => {
-            // match the chain title
-            const regex = `/.*${query}.*/i`;
-            console.log({ regex });
-            if (chain.title.includes(query)) return true;
+
+    const chains = inlineChainData.filter(
+        (chain) => chain.title.includes(query) && chain.by.id === ctx.from.id // todo fix this to id based
+    );
+
+    if (chains.length === 0) {
+        ctx.answerInlineQuery([], {
+            switch_pm_parameter: "inline",
+            switch_pm_text: "Create a new chain",
+            cache_time: 0,
         });
-
-        console.log({ chains });
-        if (chains.length) {
-            const inlineAnswers: InlineQueryResultArticle[] = chains.map(
-                (chain) => ({
-                    type: "article",
-                    id: "2",
-
-                    thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
-
-                    title: chain.title,
-                    input_message_content: {
-                        message_text: chain.title,
-                    },
-                    reply_markup: {
-                        inline_keyboard: [
-                            [
-                                {
-                                    text: "Add your message",
-                                    url: `https://t.me/msgchainbot?start=add_-_${ctx.from.id}_-_${chain.title}`,
-                                },
-                            ],
-                            [
-                                {
-                                    text: "Activate chain",
-                                    callback_data: "activate",
-                                },
-                            ],
-                        ],
-                    },
-                })
-            );
-            const msg = await ctx.answerInlineQuery(
-                inlineAnswers,
-
-                {
-                    switch_pm_parameter: "inline",
-                    switch_pm_text: "Create a new chain",
-                    cache_time: 0,
-                }
-            );
-        } else {
-            ctx.answerInlineQuery(
-                [
-                    {
-                        type: "photo",
-                        id: "1",
-                        photo_url: "https://i.imgur.com/FYEGVYV.jpg",
-                        thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
-                    },
-                ],
-
-                {
-                    switch_pm_parameter: "inline",
-                    switch_pm_text: "Create a new chain",
-                    cache_time: 0,
-
-                }
-            );
-        }
+        return;
     } else {
-        ctx.answerInlineQuery(
-            [
-                {
-                    type: "photo",
-                    id: "1",
-                    photo_url: "https://i.imgur.com/FYEGVYV.jpg",
-                    thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
+        const mappedChains: InlineQueryResultArticle[] = chains.map((chain) => {
+            const url = `https://t.me/msgchainbot?start=add_${chain.id}`
+          
+            return {
+                type: "article",
+                id: chain.id,
+                title: chain.title,
+                input_message_content: {
+                    message_text: chain.title,
+                    parse_mode: "HTML",
                 },
-            ],
-
-            {
-                switch_pm_parameter: "inline",
-                switch_pm_text: "Create a new chain",
-                cache_time: 0,
-
-            }
-        );
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: "Add your message",
+                                url,
+                            },
+                        ],
+                        [
+                            {
+                                text: "Activate chain",
+                                callback_data: "activate",
+                            },
+                        ],
+                    ],
+                },
+            };
+        });
+        ctx.answerInlineQuery(mappedChains, {
+            switch_pm_parameter: "inline",
+            switch_pm_text: "Create a new chain",
+            cache_time: 0,
+        });
     }
+
+    return;
+    // console.log(inlineChainData[ctx.from.id]);
+    // if (inlineChainData[ctx.from.id]) {
+    //     const chains = inlineChainData[ctx.from.id].filter((chain) => {
+    //         // match the chain title
+    //         const regex = `/.*${query}.*/i`;
+    //         console.log({ regex });
+    //         if (chain.title.includes(query)) return true;
+    //     });
+
+    //     console.log({ chains });
+    //     if (chains.length) {
+    //         const inlineAnswers: InlineQueryResultArticle[] = chains.map(
+    //             (chain) => ({
+    //                 type: "article",
+    //                 id: "2",
+
+    //                 thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
+
+    //                 title: chain.title,
+    //                 input_message_content: {
+    //                     message_text: chain.title,
+    //                 },
+    //                 reply_markup: {
+    //                     inline_keyboard: [
+    //                         [
+    //                             {
+    //                                 text: "Add your message",
+    //                                 url: `https://t.me/msgchainbot?start=add_${chain.id}`,
+    //                             },
+    //                         ],
+    //                         [
+    //                             {
+    //                                 text: "Activate chain",
+    //                                 callback_data: "activate",
+    //                             },
+    //                         ],
+    //                     ],
+    //                 },
+    //             })
+    //         );
+    //         const msg = await ctx.answerInlineQuery(
+    //             inlineAnswers,
+
+    //             {
+    //                 switch_pm_parameter: "inline",
+    //                 switch_pm_text: "Create a new chain",
+    //                 cache_time: 0,
+    //             }
+    //         );
+    //     } else {
+    //         ctx.answerInlineQuery(
+    //             [
+    //                 {
+    //                     type: "photo",
+    //                     id: "1",
+    //                     photo_url: "https://i.imgur.com/FYEGVYV.jpg",
+    //                     thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
+    //                 },
+    //             ],
+
+    //             {
+    //                 switch_pm_parameter: "inline",
+    //                 switch_pm_text: "Create a new chain",
+    //                 cache_time: 0,
+    //             }
+    //         );
+    //     }
+    // } else {
+    //     ctx.answerInlineQuery(
+    //         [
+    //             {
+    //                 type: "photo",
+    //                 id: "1",
+    //                 photo_url: "https://i.imgur.com/FYEGVYV.jpg",
+    //                 thumb_url: "https://i.imgur.com/FYEGVYV.jpg",
+    //             },
+    //         ],
+
+    //         {
+    //             switch_pm_parameter: "inline",
+    //             switch_pm_text: "Create a new chain",
+    //             cache_time: 0,
+    //         }
+    //     );
+    // }
 });
 
 // bot.on('callback_query', async (ctx) => {
@@ -420,11 +490,7 @@ try {
         for (const chatId in previousData) {
             data[chatId] = {};
             for (const messageId in previousData[chatId]) {
-                const chain = new Chain(
-                    "",
-                    "",
-                    previousData[chatId][messageId]
-                );
+                const chain = new Chain(previousData[chatId][messageId]);
 
                 data[chatId][messageId] = chain;
             }

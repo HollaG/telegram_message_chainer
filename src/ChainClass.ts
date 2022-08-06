@@ -1,9 +1,15 @@
+import { User } from "telegraf/typings/core/types/typegram";
 import { Data, defaultMsg } from ".";
+
+type BasicDetails = {
+    id: number;
+    first_name: string;
+};
 
 export class Chain {
     lastUpdated: number;
     secondLastUpdated: number;
-    by: string;
+    by: BasicDetails;
     title: string;
     replies: {
         [memberId: number]: {
@@ -12,19 +18,45 @@ export class Chain {
             first_name: string;
         };
     };
-    constructor(by: string, title: string, restoredData?: Chain) {
-        if (restoredData) {
+    id: string;
+    // constructor(by: User, title: string, id: string, restoredData?: Chain) {
+    //     if (restoredData) {
+    //         this.lastUpdated = restoredData.lastUpdated;
+    //         this.by = restoredData.by;
+    //         this.replies = restoredData.replies;
+    //         this.secondLastUpdated = restoredData.secondLastUpdated;
+    //         this.title = restoredData.title;
+    //         this.id = restoredData.id
+    //     } else {
+    //         this.lastUpdated = Date.now();
+    //         this.replies = {};
+    //         this.by = by;
+    //         this.secondLastUpdated = Date.now();
+    //         this.title = title;
+    //         this.id = id;
+    //     }
+    // }
+
+    public constructor(...args: any[]) {
+        if (args.length === 1) {
+            // restoring old class data
+            const restoredData = args[0];
             this.lastUpdated = restoredData.lastUpdated;
             this.by = restoredData.by;
             this.replies = restoredData.replies;
             this.secondLastUpdated = restoredData.secondLastUpdated;
             this.title = restoredData.title;
+            this.id = restoredData.id;
         } else {
+            const by = args[0];
+            const title = args[1];
+            const id = args[2];
             this.lastUpdated = Date.now();
             this.replies = {};
             this.by = by;
             this.secondLastUpdated = Date.now();
             this.title = title;
+            this.id = id;
         }
     }
 
@@ -69,7 +101,7 @@ export class Chain {
             const chain = this.generateChain(chatId, msgId);
             replyMsg += `${chain}`;
 
-            replyMsg += `${Object.keys(this.replies).length} 👥 responded\n`
+            replyMsg += `${Object.keys(this.replies).length} 👥 responded\n`;
         }
 
         replyMsg += `=====================\n\n`;
