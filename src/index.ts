@@ -68,6 +68,24 @@ bot.start(async (ctx) => {
         return;
     }
 
+    // Check if the user shortcut the chain creation by adding text after /start
+    console.log(ctx.message.text)
+    const sanitizedTitle = sanitizeHtml(ctx.message?.text.replace("/start", "")).trim();
+    if (sanitizedTitle.length) {
+        // check if inputText is 0 < char < 256
+        if (sanitizedTitle.length < 1 ) {
+            return ctx.reply(ERROR_CHAIN_TITLE_TOO_SHORT);
+        } 
+        if (sanitizedTitle.length > 256) {
+            return ctx.reply(ERROR_CHAIN_TITLE_TOO_LONG);
+        }
+
+        // start the chain
+        await createChain(ctx, sanitizedTitle);
+
+        return
+    }
+
     ctx.reply("Let's create a new chain. Please send me your chain title.");
     inlineCreationData[ctx.chat.id] = 1;
 });
@@ -89,29 +107,8 @@ bot.on("text", async (ctx) => {
         }
 
         // Chain title successfully received
-        // Create new chain and send it to the user
-        let msgText = `<b><u> ${sanitizedTitle} </u></b>\n\n<i>No respondents yet!</i>`;
-        const msg = await ctx.reply(`Please wait...`);
-
-        const msgId = msg.message_id;
-
-        const uniqueChainId = `${ctx.chat.id}${ENCODER_SEPARATOR}${msgId}`;
-        const chain = new Chain(ctx.from, sanitizedTitle, uniqueChainId);
-        // save the chain
-        inlineChainData.push(chain);
-
-        await ctx.telegram.editMessageText(
-            ctx.chat.id,
-            msgId,
-            undefined,
-            msgText,
-            {
-                parse_mode: "HTML",
-                ...generatePMReplyMarkup(chain),
-            }
-        );
-
-        delete inlineCreationData[ctx.chat.id];
+        // Create new chain and send it to the user    
+        await createChain(ctx, sanitizedTitle);
     }
 
     // Check if user is entering a chain message for an inline chain
@@ -297,6 +294,31 @@ const generatePMReplyMarkup = (chain: Chain) => {
     };
 };
 
+const createChain = async (ctx: Context, sanitizedTitle: string) => {
+    if (!ctx.chat) return
+    const msg = await ctx.reply(`Please wait...`);
+
+    const msgId = msg.message_id;
+
+    const uniqueChainId = `${ctx.chat.id}${ENCODER_SEPARATOR}${msgId}`;
+    const chain = new Chain(ctx.from, sanitizedTitle, uniqueChainId);
+    // save the chain
+    inlineChainData.push(chain);
+
+    await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        msgId,
+        undefined,
+        chain.generateReplyMessage(ctx.chat.id, msgId),
+        {
+            parse_mode: "HTML",
+            ...generatePMReplyMarkup(chain),
+        }
+    );
+
+    delete inlineCreationData[ctx.chat.id];
+} 
+
 const endChain = (chain: Chain, ctx: Context) => {
     chain.endChain()
 
@@ -326,6 +348,9 @@ const endChain = (chain: Chain, ctx: Context) => {
             parse_mode: "HTML",
         }
     );
+
+    // remove the chain from the list
+    inlineChainData = inlineChainData.filter((chain) => chain.id !== chain.id);
 
     backupAndClearInlineChains(ctx)
 };
