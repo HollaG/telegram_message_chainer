@@ -47,211 +47,247 @@ let inlineReplyData: {
 } = {};
 
 bot.start(async (ctx) => {
-    // User adding / updating a message
-    if (ctx.startPayload.startsWith("add")) {
-        const chainId = ctx.startPayload.replace("add_", "");
-        const chain = inlineChainData.find((chain) => chain.id === chainId);
+    try {
+        // User adding / updating a message
+        if (ctx.startPayload.startsWith("add")) {
+            // remove user from inlineReplyData if they are already in it
+            delete inlineReplyData[ctx.chat.id];
+            const chainId = ctx.startPayload.replace("add_", "");
+            const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-        if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
+            if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
 
-        // prompt user to enter their chain message
-        // Let user copy their previous message, if they sent it
-        // check if user entered a message
-        const userMessage = chain.replies[ctx.from.id]?.text;
+            // prompt user to enter their chain message
+            // Let user copy their previous message, if they sent it
+            // check if user entered a message
+            const userMessage = chain.replies[ctx.from.id]?.text;
 
-        let message = `Please enter your message for the chain "${chain.title}".`;
-        if (userMessage) message += `\nYour previous message is below:`;
+            let message = `Please enter your message for the chain "${chain.title}".`;
+            if (userMessage) message += `\nYour previous message is below:`;
 
-        await ctx.reply(message);
+            await ctx.reply(message);
 
-        if (userMessage) await ctx.reply(userMessage);
-        inlineReplyData[ctx.chat.id] = chain.id;
+            if (userMessage) await ctx.reply(userMessage);
+            inlineReplyData[ctx.chat.id] = chain.id;
 
-        return;
-    }
-
-    // Check if the user shortcut the chain creation by adding text after /start
-    const sanitizedTitle = sanitizeHtml(
-        ctx.message?.text.replace("/start", ""),
-        sanitizeOptions
-    ).trim();
-    if (sanitizedTitle.length) {
-        // check if inputText is 0 < char < 256
-        if (sanitizedTitle.length < 1) {
-            return ctx.reply(ERROR_CHAIN_TITLE_TOO_SHORT);
-        }
-        if (sanitizedTitle.length > 256) {
-            return ctx.reply(ERROR_CHAIN_TITLE_TOO_LONG);
+            return;
         }
 
-        // start the chain
-        await createChain(ctx, sanitizedTitle);
+        if (ctx.startPayload.startsWith("inline")) {
+            // creating new
+            delete inlineReplyData[ctx.chat.id];
+            ctx.reply(PROMPT_NEW_CHAIN);
+            inlineCreationData[ctx.chat.id] = 1;
 
-        return;
-    } else {
-        // if (ctx.startPayload.startsWith("inline")) {
-        ctx.reply(PROMPT_NEW_CHAIN);
-        inlineCreationData[ctx.chat.id] = 1;
+            return;
+        }
 
-        return;
-        // }
+        // Check if the user shortcut the chain creation by adding text after /start
+        const sanitizedTitle = sanitizeHtml(
+            ctx.message?.text.replace("/start", ""),
+            sanitizeOptions
+        ).trim();
+        if (sanitizedTitle.length) {
+            // check if inputText is 0 < char < 256
+            if (sanitizedTitle.length < 1) {
+                return ctx.reply(ERROR_CHAIN_TITLE_TOO_SHORT);
+            }
+            if (sanitizedTitle.length > 256) {
+                return ctx.reply(ERROR_CHAIN_TITLE_TOO_LONG);
+            }
+
+            // start the chain
+            await createChain(ctx, sanitizedTitle);
+
+            return;
+        } else {
+            ctx.reply(PROMPT_NEW_CHAIN);
+            delete inlineReplyData[ctx.chat.id];
+            inlineCreationData[ctx.chat.id] = 1;
+
+            return;
+        }
+    } catch (e) {
+        console.log("Error: ", e);
     }
 });
 
 bot.on("text", async (ctx) => {
     // Check if user is entering a chain title for an inline chain
-    if (inlineCreationData[ctx.chat.id]) {
-        // check conditions
-        // 1) Not empty
-        // 2) Not longer than 256 characters
-        const sanitizedTitle = sanitizeHtml(
-            ctx.message.text,
-            sanitizeOptions
-        ).trim();
-        if (sanitizedTitle.length > 256) {
-            ctx.reply(ERROR_CHAIN_TITLE_TOO_LONG);
-            return;
-        }
-        if (sanitizedTitle.length === 0) {
-            ctx.reply(ERROR_CHAIN_TITLE_TOO_SHORT);
-            return;
+    try {
+        if (inlineCreationData[ctx.chat.id]) {
+            // check conditions
+            // 1) Not empty
+            // 2) Not longer than 256 characters
+            const sanitizedTitle = sanitizeHtml(
+                ctx.message.text,
+                sanitizeOptions
+            ).trim();
+            if (sanitizedTitle.length > 256) {
+                ctx.reply(ERROR_CHAIN_TITLE_TOO_LONG);
+                return;
+            }
+            if (sanitizedTitle.length === 0) {
+                ctx.reply(ERROR_CHAIN_TITLE_TOO_SHORT);
+                return;
+            }
+
+            // Chain title successfully received
+            // Create new chain and send it to the user
+            await createChain(ctx, sanitizedTitle);
         }
 
-        // Chain title successfully received
-        // Create new chain and send it to the user
-        await createChain(ctx, sanitizedTitle);
+        // Check if user is entering a chain message for an inline chain
+        if (inlineReplyData[ctx.chat.id]) {
+            // check conditions
+            // 1) Not empty
+            // 2) Not longer than 256 characters
+            const sanitizedMsg = ctx.message.text.trim();
+            if (sanitizedMsg.length > 256) {
+                ctx.reply(ERROR_CHAIN_MESSAGE_TOO_LONG);
+                return;
+            }
+            if (sanitizedMsg.length === 0) {
+                ctx.reply(ERROR_CHAIN_MESSAGE_TOO_SHORT);
+                return;
+            }
+
+            // Message successfully received
+            // Create new chain and send it to the user
+
+            const chainId = inlineReplyData[ctx.chat.id];
+
+            // find the chain
+            const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+            if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
+
+            // add the message to the chain
+            chain.updateReplies({
+                first_name: ctx.from.first_name,
+
+                memberId: ctx.from.id,
+                text: sanitizedMsg,
+                username: ctx.from.username || "",
+            });
+
+            // Edit all the messages shared in chats
+            editMessages(chain, ctx);
+        }
+
+        backupAndClearInlineChains(ctx);
+    } catch (e) {
+        console.log("Error: ", e);
     }
-
-    // Check if user is entering a chain message for an inline chain
-    if (inlineReplyData[ctx.chat.id]) {
-        // check conditions
-        // 1) Not empty
-        // 2) Not longer than 256 characters
-        const sanitizedMsg = ctx.message.text.trim();
-        if (sanitizedMsg.length > 256) {
-            ctx.reply(ERROR_CHAIN_MESSAGE_TOO_LONG);
-            return;
-        }
-        if (sanitizedMsg.length === 0) {
-            ctx.reply(ERROR_CHAIN_MESSAGE_TOO_SHORT);
-            return;
-        }
-
-        // Message successfully received
-        // Create new chain and send it to the user
-
-        const chainId = inlineReplyData[ctx.chat.id];
-
-        // find the chain
-        const chain = inlineChainData.find((chain) => chain.id === chainId);
-
-        if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
-
-        // add the message to the chain
-        chain.updateReplies({
-            first_name: ctx.from.first_name,
-
-            memberId: ctx.from.id,
-            text: sanitizedMsg,
-            username: ctx.from.username || "",
-        });
-
-        // Edit all the messages shared in chats
-        editMessages(chain, ctx);
-    }
-
-    backupAndClearInlineChains(ctx);
 });
 
 /* Inline Queries */
 bot.on("inline_query", async (ctx) => {
-    const query = ctx.inlineQuery.query.trim();
-    // Look for the chain belonging to this user with the specified search terms only if it exists
+    try {
+        const query = ctx.inlineQuery.query.trim();
+        // Look for the chain belonging to this user with the specified search terms only if it exists
 
-    const chains = inlineChainData.filter(
-        (chain) => chain.title.includes(query) && chain.by.id === ctx.from.id // todo fix this to id based
-    );
+        const chains = inlineChainData.filter(
+            (chain) =>
+                chain.title.includes(query) && chain.by.id === ctx.from.id // todo fix this to id based
+        );
 
-    if (chains.length === 0) {
-        ctx.answerInlineQuery([], {
-            switch_pm_parameter: "inline",
-            switch_pm_text: "Create a new chain",
-            cache_time: 0,
-        });
+        if (chains.length === 0) {
+            ctx.answerInlineQuery([], {
+                switch_pm_parameter: "inline",
+                switch_pm_text: "Create a new chain",
+                cache_time: 0,
+            });
+            return;
+        } else {
+            const mappedChains: InlineQueryResultArticle[] = chains.map(
+                (chain) => {
+                    const chatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+                    const msgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+                    return {
+                        type: "article",
+                        id: chain.id,
+                        title: chain.title,
+                        input_message_content: {
+                            message_text: chain.generateReplyMessage(
+                                chatId,
+                                msgId
+                            ),
+                            parse_mode: "HTML",
+                        },
+                        ...generateSharedReplyMarkup(chain.id),
+                    };
+                }
+            );
+            ctx.answerInlineQuery(mappedChains, {
+                switch_pm_parameter: "inline",
+                switch_pm_text: "Create a new chain",
+                cache_time: 0,
+            });
+        }
+
         return;
-    } else {
-        const mappedChains: InlineQueryResultArticle[] = chains.map((chain) => {
-            const chatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
-            const msgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
-            return {
-                type: "article",
-                id: chain.id,
-                title: chain.title,
-                input_message_content: {
-                    message_text: chain.generateReplyMessage(chatId, msgId),
-                    parse_mode: "HTML",
-                },
-                ...generateSharedReplyMarkup(chain.id),
-            };
-        });
-        ctx.answerInlineQuery(mappedChains, {
-            switch_pm_parameter: "inline",
-            switch_pm_text: "Create a new chain",
-            cache_time: 0,
-        });
+    } catch (e) {
+        console.log("Error: ", e);
     }
-
-    return;
 });
 
 /* Listen for when the user chooses a result from the inline query to share a chain */
 bot.on("chosen_inline_result", (ctx) => {
-    // chain shared with a group
-    // if (!ctx.chat || !ctx.chat.id) return
-    const chainId = ctx.chosenInlineResult.result_id;
-    const msgId = ctx.chosenInlineResult.inline_message_id || "";
+    try {
+        // chain shared with a group
+        // if (!ctx.chat || !ctx.chat.id) return
+        const chainId = ctx.chosenInlineResult.result_id;
+        const msgId = ctx.chosenInlineResult.inline_message_id || "";
 
-    // find the chain
-    const chain = inlineChainData.find((chain) => chain.id === chainId);
+        // find the chain
+        const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-    if (!chain) return console.error("ERROR: chain not found");
+        if (!chain) return console.error("ERROR: chain not found");
 
-    // store the msgId for future editing
-    chain.addNewSharedChat(msgId);
+        // store the msgId for future editing
+        chain.addNewSharedChat(msgId);
 
-    backupAndClearInlineChains(ctx);
+        backupAndClearInlineChains(ctx);
+    } catch (e) {
+        console.log("Error: ", e);
+    }
 });
 
 /* Listen for when user ends their chain */
 bot.on("callback_query", async (ctx) => {
-    const cbData = ctx.callbackQuery.data;
-    if (!ctx.from) return;
-    if (cbData?.startsWith("end")) {
-        const chainId = cbData.replace("end_", "");
-        // find the chain
-        const chain = inlineChainData.find((chain) => chain.id === chainId);
+    try {
+        const cbData = ctx.callbackQuery.data;
+        if (!ctx.from) return;
+        if (cbData?.startsWith("end")) {
+            const chainId = cbData.replace("end_", "");
+            // find the chain
+            const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-        if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
+            if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
 
-        // end the chain
-        endChain(chain, ctx);
-        ctx.answerCbQuery("Chain ended!");
-    }
-    if (cbData?.startsWith("remove")) {
-        const chainId = cbData.replace("remove_", "");
-        // find the chain
-        const chain = inlineChainData.find((chain) => chain.id === chainId);
+            // end the chain
+            endChain(chain, ctx);
+            ctx.answerCbQuery("Chain ended!");
+        }
+        if (cbData?.startsWith("remove")) {
+            const chainId = cbData.replace("remove_", "");
+            // find the chain
+            const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-        if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
+            if (!chain) return ctx.reply(ERROR_CHAIN_NOT_FOUND);
 
-        // ignore if user never replied in the first place
-        if (!chain.replies[ctx.from.id]) return ctx.answerCbQuery();
+            // ignore if user never replied in the first place
+            if (!chain.replies[ctx.from.id]) return ctx.answerCbQuery();
 
-        // remove this user from the chain
-        chain.removeReply(ctx.from.id);
-        // update messages
-        editMessages(chain, ctx);
-        ctx.answerCbQuery("Message removed!");
+            // remove this user from the chain
+            chain.removeReply(ctx.from.id);
+            // update messages
+            editMessages(chain, ctx);
+            ctx.answerCbQuery("Message removed!");
+        }
+    } catch (e) {
+        console.log("Error: ", e);
     }
 });
 
@@ -295,133 +331,154 @@ const generatePMReplyMarkup = (chain: Chain) => {
 };
 
 const createChain = async (ctx: Context, sanitizedTitle: string) => {
-    if (!ctx.chat) return;
-    const msg = await ctx.reply(`Please wait...`);
+    try {
+        if (!ctx.chat) return;
+        const msg = await ctx.reply(`Please wait...`);
 
-    const msgId = msg.message_id;
+        const msgId = msg.message_id;
 
-    const uniqueChainId = `${ctx.chat.id}${ENCODER_SEPARATOR}${msgId}`;
-    const chain = new Chain(ctx.from, sanitizedTitle, uniqueChainId);
-    // save the chain
-    inlineChainData.push(chain);
+        const uniqueChainId = `${ctx.chat.id}${ENCODER_SEPARATOR}${msgId}`;
+        const chain = new Chain(ctx.from, sanitizedTitle, uniqueChainId);
+        // save the chain
+        inlineChainData.push(chain);
 
-    ctx.telegram
-        .editMessageText(
-            ctx.chat.id,
-            msgId,
-            undefined,
-            chain.generateReplyMessage(ctx.chat.id, msgId),
-            {
-                parse_mode: "HTML",
-                ...generatePMReplyMarkup(chain),
-            }
-        )
-        .catch((e) => editErrorHandler(e, ctx));
+        ctx.telegram
+            .editMessageText(
+                ctx.chat.id,
+                msgId,
+                undefined,
+                chain.generateReplyMessage(ctx.chat.id, msgId),
+                {
+                    parse_mode: "HTML",
+                    ...generatePMReplyMarkup(chain),
+                }
+            )
+            .catch((e) => editErrorHandler(e, ctx));
 
-    ctx.pinChatMessage(msgId);
+        ctx.pinChatMessage(msgId);
 
-    delete inlineCreationData[ctx.chat.id];
+        delete inlineCreationData[ctx.chat.id];
+    } catch (e) {
+        console.log("Error: ", e);
+    }
 };
 
 const endChain = (chain: Chain, ctx: Context) => {
-    chain.endChain();
+    try {
+        chain.endChain();
 
-    const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
-    const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
-    
-    // Edit group messages
-    for (const inlineMsgId of chain.sharedInChats) {
+        const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+        const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+
+        // Edit group messages
+        for (const inlineMsgId of chain.sharedInChats) {
+            ctx.telegram
+                .editMessageText(
+                    undefined,
+                    undefined,
+                    inlineMsgId,
+                    chain.generateReplyMessage(chainChatId, chainMsgId),
+                    {
+                        parse_mode: "HTML",
+                    }
+                )
+                .catch((e) => editErrorHandler(e, ctx));
+        }
+
+        // Edit pm message
         ctx.telegram
             .editMessageText(
+                chainChatId,
+                chainMsgId,
                 undefined,
-                undefined,
-                inlineMsgId,
                 chain.generateReplyMessage(chainChatId, chainMsgId),
                 {
                     parse_mode: "HTML",
                 }
             )
             .catch((e) => editErrorHandler(e, ctx));
+
+        // remove the chain from the list
+        inlineChainData = inlineChainData.filter(
+            (chain) => chain.id !== chain.id
+        );
+
+        backupAndClearInlineChains(ctx);
+    } catch (e) {
+        console.log("Error: ", e);
     }
-
-    // Edit pm message
-    ctx.telegram
-        .editMessageText(
-            chainChatId,
-            chainMsgId,
-            undefined,
-            chain.generateReplyMessage(chainChatId, chainMsgId),
-            {
-                parse_mode: "HTML",
-            }
-        )
-        .catch((e) => editErrorHandler(e, ctx));
-
-    // remove the chain from the list
-    inlineChainData = inlineChainData.filter((chain) => chain.id !== chain.id);
-
-    backupAndClearInlineChains(ctx);
 };
 
 const editMessages = (chain: Chain, ctx: Context) => {
-    // Edit all the messages shared in chats
-    const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
-    const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
-    for (const inlineMsgId of chain.sharedInChats) {
+    try {
+        // Edit all the messages shared in chats
+        const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+        const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+        for (const inlineMsgId of chain.sharedInChats) {
+            ctx.telegram
+                .editMessageText(
+                    undefined,
+                    undefined,
+                    inlineMsgId,
+                    chain.generateReplyMessage(chainChatId, chainMsgId),
+                    {
+                        parse_mode: "HTML",
+                        ...generateSharedReplyMarkup(chain.id),
+                    }
+                )
+                .catch((e) => editErrorHandler(e, ctx));
+        }
+
+        // Edit the message in the PM
         ctx.telegram
             .editMessageText(
+                chainChatId,
+                chainMsgId,
                 undefined,
-                undefined,
-                inlineMsgId,
                 chain.generateReplyMessage(chainChatId, chainMsgId),
                 {
                     parse_mode: "HTML",
-                    ...generateSharedReplyMarkup(chain.id),
+                    ...generatePMReplyMarkup(chain),
                 }
             )
             .catch((e) => editErrorHandler(e, ctx));
-    }
 
-    // Edit the message in the PM
-    ctx.telegram
-        .editMessageText(
-            chainChatId,
-            chainMsgId,
-            undefined,
-            chain.generateReplyMessage(chainChatId, chainMsgId),
-            {
-                parse_mode: "HTML",
-                ...generatePMReplyMarkup(chain),
-            }
-        )
-        .catch((e) => editErrorHandler(e, ctx));
-
-    // From a user sending a message
-    if (ctx.chat) {
-        delete inlineReplyData[ctx.chat.id];
-        ctx.reply(SUCCESS_MESSAGE_RECEIEVED);
+        // From a user sending a message
+        if (ctx.chat) {
+            delete inlineReplyData[ctx.chat.id];
+            ctx.reply(SUCCESS_MESSAGE_RECEIEVED);
+        }
+    } catch (e) {
+        console.log("Error: ", e);
     }
 };
 
 const backupAndClearInlineChains = async (ctx: Context) => {
-    const stillRunningChains: Chain[] = [];
+    try {
+        const stillRunningChains: Chain[] = [];
 
-    inlineChainData.forEach((chain) => {
-        if (chain.lastUpdated > Date.now() - CHAIN_TIMEOUT && !chain.ended) {
-            stillRunningChains.push(chain);
-        } else {
-            endChain(chain, ctx);
-        }
-    });
+        inlineChainData.forEach((chain) => {
+            if (
+                chain.lastUpdated > Date.now() - CHAIN_TIMEOUT &&
+                !chain.ended
+            ) {
+                stillRunningChains.push(chain);
+            } else {
+                endChain(chain, ctx);
+            }
+        });
 
-    inlineChainData = stillRunningChains;
-    fs.writeFile(
-        "inlineChainData.json",
-        JSON.stringify(inlineChainData),
-        (e) => {
-            if (e) return console.log(e);
-        }
-    );
+        inlineChainData = stillRunningChains;
+        fs.writeFile(
+            "inlineChainData.json",
+            JSON.stringify(inlineChainData),
+            (e) => {
+                if (e) return console.log(e);
+            }
+        );
+    } catch (e) {
+        console.log("Error: ", e);
+    }
 };
 
 const editErrorHandler = (e: any, ctx: Context) => {
