@@ -1,6 +1,9 @@
 type BasicDetails = {
     id: number;
     first_name: string;
+    is_bot: boolean;
+    username: string;
+    language_code: string;
 };
 
 export class Chain {
@@ -73,7 +76,7 @@ export class Chain {
         this.lastUpdated = Date.now();
     }
 
-    removeReply(memberId: number) { 
+    removeReply(memberId: number) {
         delete this.replies[memberId];
 
         this.secondLastUpdated = this.lastUpdated;
@@ -84,9 +87,13 @@ export class Chain {
         const chain: string[] = [];
         Object.keys(this.replies).forEach((memberId, i) => {
             chain.push(
-                `<a href='t.me/${this.replies[Number(memberId)].username}'><b>${i+1}. ${this.replies[Number(memberId)].first_name}</b></a>\n${this.replies[Number(memberId)].text}\n\n`
+                `<a href='t.me/${this.replies[Number(memberId)].username}'><b>${
+                    i + 1
+                }. ${this.replies[Number(memberId)].first_name}</b></a>\n${
+                    this.replies[Number(memberId)].text
+                }\n\n`
             );
-        })      
+        });
 
         return chain.join("");
     }
@@ -95,7 +102,7 @@ export class Chain {
         let replyMsg = "";
 
         if (this.ended) {
-            replyMsg+= `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n`;
+            replyMsg += `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n`;
         }
 
         if (this.title.length) {
@@ -111,7 +118,7 @@ export class Chain {
             replyMsg += `<i>No respondents yet </i>\n\n`;
         }
 
-        replyMsg += `<i>#${chatId}:${msgId} | by ${this.by.first_name}</i>`;
+        replyMsg += `<i>#${chatId}:${msgId} | by <a href='t.me/${this.by.username}'>${this.by.first_name}</a></i>`;
 
         return replyMsg;
     }
@@ -124,6 +131,4 @@ export class Chain {
     endChain() {
         this.ended = true;
     }
-
-    
 }
