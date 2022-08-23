@@ -31,9 +31,9 @@ const ERROR_CHAIN_NOT_FOUND = `Sorry, the chain was not found`;
 const ERROR_CHAIN_MESSAGE_TOO_LONG = `Sorry, the message of the chain must be less than 256 characters long.`;
 const ERROR_CHAIN_MESSAGE_TOO_SHORT = `Sorry, the message of the chain must be at least 1 character long.`;
 
-const ERROR_NOT_REPLIED = `You haven't replied to this chain yet!`
+const ERROR_NOT_REPLIED = `You haven't replied to this chain yet!`;
 
-const SUCCESS_MESSAGE_RECEIEVED = "Your message has been received!";
+const SUCCESS_MESSAGE_RECEIVED = "Your message has been received!";
 
 const PROMPT_NEW_CHAIN =
     "Let's create a new chain. Please send me your chain title.";
@@ -100,7 +100,7 @@ bot.start(async (ctx) => {
 
             // start the chain
             await createChain(ctx, sanitizedTitle);
-            backupAndClearInlineChains(ctx)
+            backupAndClearInlineChains(ctx);
             return;
         } else {
             ctx.reply(PROMPT_NEW_CHAIN);
@@ -194,6 +194,17 @@ bot.on("inline_query", async (ctx) => {
                 chain.title.includes(query) && chain.by.id === ctx.from.id // todo fix this to id based
         );
 
+        // Return public chains IFF it's an exact match AND the creator is not the same as the requestor (because that's covered
+        // in the `chains` array)
+        const publicChains = inlineChainData.filter(
+            (chain) =>
+                chain.title === query &&
+                chain.isPublic &&
+                chain.by.id !== ctx.from.id
+        );
+
+        chains.push(...publicChains);
+
         if (chains.length === 0) {
             ctx.answerInlineQuery([], {
                 switch_pm_parameter: "inline",
@@ -269,26 +280,47 @@ bot.on("callback_query", async (ctx) => {
             if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
 
             // end the chain
-            chain.endChain()
+            chain.endChain();
             ctx.answerCbQuery("Chain ended!");
-            backupAndClearInlineChains(ctx)
+            backupAndClearInlineChains(ctx);
         }
         if (cbData?.startsWith("remove")) {
             const chainId = cbData.replace("remove_", "");
             // find the chain
             const chain = inlineChainData.find((chain) => chain.id === chainId);
-            
 
-            if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND)
+            if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
 
             // ignore if user never replied in the first place
-            if (!chain.replies[ctx.from.id]) return ctx.answerCbQuery(ERROR_NOT_REPLIED);
+            if (!chain.replies[ctx.from.id])
+                return ctx.answerCbQuery(ERROR_NOT_REPLIED);
 
             // remove this user from the chain
             chain.removeReply(ctx.from.id);
             // update messages
             editMessages(chain, ctx);
             ctx.answerCbQuery("Message removed!");
+        }
+
+        if (cbData?.startsWith("public")) {
+            const chainId = cbData.replace("public_", "");
+            // find the chain
+            const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+            if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
+
+            // make the chain public
+            chain.togglePublic();
+            ctx.answerCbQuery(
+                `Chain is now ${
+                    chain.isPublic
+                        ? "public. Other people can share your chain!"
+                        : "private. Other people no longer can share your chain!"
+                }`
+            );
+
+            editMessages(chain, ctx, true);
+            // edit the group messages to remove / add the 'share chain' button
         }
     } catch (e) {
         console.log("Error: ", e);
@@ -297,20 +329,48 @@ bot.on("callback_query", async (ctx) => {
 
 const generateSharedReplyMarkup = (chainId: string) => {
     const url = `https://t.me/msgchainbot?start=add_${chainId}`;
+    const chain = inlineChainData.find((chain) => chain.id === chainId);
+    if (!chain) return {};
+
+    const inlineKeyboard: (
+        | (
+              | {
+                    text: string;
+                    url: string;
+                }
+              | {
+                    text: string;
+                    callback_data: string;
+                }
+          )[]
+        | {
+              switch_inline_query: string;
+              text: string;
+          }[]
+    )[] = [
+        [
+            {
+                text: "Add / Edit your message",
+                url,
+            },
+            {
+                text: "Remove your message",
+                callback_data: `remove_${chainId}`,
+            },
+        ],
+    ];
+
+    if (chain.isPublic) {
+        inlineKeyboard.push([
+            {
+                switch_inline_query: chain.title,
+                text: "Share chain",
+            },
+        ]);
+    }
     return {
         reply_markup: {
-            inline_keyboard: [
-                [
-                    {
-                        text: "Add / Edit your message",
-                        url,
-                    },
-                    {
-                        text: "Remove your message",
-                        callback_data: `remove_${chainId}`,
-                    },
-                ],
-            ],
+            inline_keyboard: inlineKeyboard,
         },
     };
 };
@@ -327,6 +387,14 @@ const generatePMReplyMarkup = (chain: Chain) => {
                     {
                         text: "End chain",
                         callback_data: `end_${chain.id}`,
+                    },
+                ],
+                [
+                    {
+                        text: `Make chain ${
+                            chain.isPublic ? "private" : "public"
+                        }`,
+                        callback_data: `public_${chain.id}`,
                     },
                 ],
             ],
@@ -369,8 +437,7 @@ const createChain = async (ctx: Context, sanitizedTitle: string) => {
 };
 
 const endChain = (chain: Chain, ctx: Context) => {
-    try {       
-
+    try {
         const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
         const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
 
@@ -415,7 +482,11 @@ const endChain = (chain: Chain, ctx: Context) => {
     }
 };
 
-const editMessages = (chain: Chain, ctx: Context) => {
+const editMessages = (
+    chain: Chain,
+    ctx: Context,
+    preventAcknowledge = false
+) => {
     try {
         // Edit all the messages shared in chats
         const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
@@ -452,9 +523,9 @@ const editMessages = (chain: Chain, ctx: Context) => {
             .catch((e) => editErrorHandler(e, ctx));
 
         // From a user sending a message
-        if (ctx.chat) {
+        if (ctx.chat && !preventAcknowledge) {
             delete inlineReplyData[ctx.chat.id];
-            ctx.reply(SUCCESS_MESSAGE_RECEIEVED);
+            ctx.reply(SUCCESS_MESSAGE_RECEIVED);
         }
     } catch (e) {
         console.log("Error: ", e);

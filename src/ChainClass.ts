@@ -21,6 +21,8 @@ export class Chain {
 
     ended = false;
 
+    isPublic = false;
+
     public constructor(...args: any[]) {
         if (args.length === 1) {
             // restoring old class data
@@ -32,6 +34,7 @@ export class Chain {
             this.title = restoredData.title;
             this.id = restoredData.id;
             this.sharedInChats = restoredData.sharedInChats;
+            this.isPublic = restoredData.isPublic;
         } else {
             const by = args[0];
             const title = args[1];
@@ -44,6 +47,10 @@ export class Chain {
             this.id = id;
             this.sharedInChats = [];
         }
+    }
+
+    togglePublic() {
+        this.isPublic = !this.isPublic;
     }
 
     updateReplies({
@@ -112,7 +119,6 @@ export class Chain {
     addNewSharedChat(msgId: string) {
         console.log("adding a new shared chat");
         this.sharedInChats.push(msgId);
-        console.log(this.sharedInChats);
     }
 
     endChain() {
