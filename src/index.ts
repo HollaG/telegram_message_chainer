@@ -354,6 +354,7 @@ const createChain = async (ctx: Context, sanitizedTitle: string) => {
                 chain.generateReplyMessage(ctx.chat.id, msgId),
                 {
                     parse_mode: "HTML",
+                    disable_web_page_preview: true,
                     ...generatePMReplyMarkup(chain),
                 }
             )
@@ -383,6 +384,7 @@ const endChain = (chain: Chain, ctx: Context) => {
                     chain.generateReplyMessage(chainChatId, chainMsgId),
                     {
                         parse_mode: "HTML",
+                        disable_web_page_preview: true,
                     }
                 )
                 .catch((e) => editErrorHandler(e, ctx));
@@ -397,6 +399,7 @@ const endChain = (chain: Chain, ctx: Context) => {
                 chain.generateReplyMessage(chainChatId, chainMsgId),
                 {
                     parse_mode: "HTML",
+                    disable_web_page_preview: true,
                 }
             )
             .catch((e) => editErrorHandler(e, ctx));
@@ -426,6 +429,7 @@ const editMessages = (chain: Chain, ctx: Context) => {
                     chain.generateReplyMessage(chainChatId, chainMsgId),
                     {
                         parse_mode: "HTML",
+                        disable_web_page_preview: true,
                         ...generateSharedReplyMarkup(chain.id),
                     }
                 )
@@ -441,6 +445,7 @@ const editMessages = (chain: Chain, ctx: Context) => {
                 chain.generateReplyMessage(chainChatId, chainMsgId),
                 {
                     parse_mode: "HTML",
+                    disable_web_page_preview: true,
                     ...generatePMReplyMarkup(chain),
                 }
             )

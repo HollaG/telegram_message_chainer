@@ -77,7 +77,7 @@ export class Chain {
         const chain: string[] = [];
         Object.keys(this.replies).forEach((memberId, i) => {
             chain.push(
-                `<b>${i+1}. ${this.replies[Number(memberId)].first_name}</b>\n${this.replies[Number(memberId)].text}\n\n`
+                `<a href='t.me/${this.replies[Number(memberId)].username}'><b>${i+1}. ${this.replies[Number(memberId)].first_name}</b></a>\n${this.replies[Number(memberId)].text}\n\n`
             );
         })      
 
