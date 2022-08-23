@@ -227,6 +227,7 @@ bot.on("inline_query", async (ctx) => {
                                 msgId
                             ),
                             parse_mode: "HTML",
+                            disable_web_page_preview: true,
                         },
                         ...generateSharedReplyMarkup(chain.id),
                     };
