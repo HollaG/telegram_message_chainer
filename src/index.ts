@@ -15,6 +15,10 @@ const sanitizeOptions = {
     allowedAttributes: {},
 };
 
+const sanitizeBodyOptions = {
+    allowedTags: ["b", "i", "u"],
+};
+
 const bot: Telegraf<Context<Update>> = new Telegraf(
     process.env.BOT_TOKEN as string
 );
@@ -144,7 +148,10 @@ bot.on("text", async (ctx) => {
             // check conditions
             // 1) Not empty
             // 2) Not longer than 256 characters
-            const sanitizedMsg = ctx.message.text.trim();
+            const sanitizedMsg = sanitizeHtml(
+                ctx.message.text.trim(),
+                sanitizeBodyOptions
+            );
             if (sanitizedMsg.length > 256) {
                 ctx.reply(ERROR_CHAIN_MESSAGE_TOO_LONG);
                 return;
