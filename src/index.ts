@@ -665,16 +665,19 @@ try {
         console.log("Reloading previous inline data");
         inlineChainData = previousInlineData.map((chain) => new Chain(chain));
     }
-} catch (e: any) {
-    if (e.code === "ENOENT") {
-        console.log("Backup file not found, backup not restored");
-        fs.writeFile("data.json", JSON.stringify({}), (e) => {
-            if (e) console.log(e);
-        });
-    } else {
-        console.log("Error reading backup file");
-        console.log(e);
+} catch (e) {
+    if (e instanceof Error) {
+        if (e.message.includes("ENOENT")) {
+            console.log("Backup file not found, backup not restored");
+            fs.writeFile("data.json", JSON.stringify({}), (e) => {
+                if (e) console.log(e);
+            });
+        } else {
+            console.log("Error reading backup file");
+            console.log(e);
+        }
     }
+    
 }
 
 bot.launch().then(() => console.log("Bot is running!"));
