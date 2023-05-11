@@ -26,6 +26,8 @@ export class Chain {
 
     isPublic = false;
 
+    isAnon = false;
+
     public constructor(...args: any[]) {
         if (args.length === 1) {
             // restoring old class data
@@ -38,6 +40,7 @@ export class Chain {
             this.id = restoredData.id;
             this.sharedInChats = restoredData.sharedInChats;
             this.isPublic = restoredData.isPublic;
+            this.isAnon = restoredData.isAnon
         } else {
             const by = args[0];
             const title = args[1];
@@ -48,12 +51,16 @@ export class Chain {
             this.secondLastUpdated = Date.now();
             this.title = title;
             this.id = id;
-            this.sharedInChats = [];
+            this.sharedInChats = [];           
         }
     }
 
     togglePublic() {
         this.isPublic = !this.isPublic;
+    }
+
+    toggleAnon() {
+        this.isAnon = !this.isAnon;
     }
 
     updateReplies({
@@ -86,13 +93,22 @@ export class Chain {
     generateChain() {
         const chain: string[] = [];
         Object.keys(this.replies).forEach((memberId, i) => {
-            chain.push(
-                `<a href='t.me/${this.replies[Number(memberId)].username}'><b>${
-                    i + 1
-                }. ${this.replies[Number(memberId)].first_name}</b></a>\n${
-                    this.replies[Number(memberId)].text
-                }\n\n`
-            );
+            if (this.isAnon) {
+                chain.push(
+                    `${
+                        this.replies[Number(memberId)].text
+                    }\n\n`
+                );
+            } else {
+                chain.push(
+                    `<a href='t.me/${this.replies[Number(memberId)].username}'><b>${
+                        i + 1
+                    }. ${this.replies[Number(memberId)].first_name}</b></a>\n${
+                        this.replies[Number(memberId)].text
+                    }\n\n`
+                );
+            }
+           
         });
 
         return chain.join("");
@@ -106,7 +122,12 @@ export class Chain {
         }
 
         if (this.title.length) {
-            replyMsg += `<b><u>${this.title}</u></b>\n\n`;
+            replyMsg += `<b><u>${this.title}</u></b>\n`;
+            if (this.isAnon) {
+                replyMsg += `<i>This chain is anonymous, your name will not be shown to anyone. </i>\n`
+            }
+
+            replyMsg += `\n`
         }
 
         if (Object.keys(this.replies).length) {

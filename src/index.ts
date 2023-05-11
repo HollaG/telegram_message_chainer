@@ -25,6 +25,11 @@ const bot: Telegraf<Context<Update>> = new Telegraf(
 
 export const ENCODER_SEPARATOR = "__";
 
+const BOT_NAME = process.env.BOT_NAME || "msgchainbot";
+console.log("Running as " + BOT_NAME);
+
+const OWNER_ID = process.env.OWNER_ID;
+
 const CHAIN_TIMEOUT = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 const ERROR_CHAIN_TITLE_TOO_LONG = `Sorry, the title of the chain must be less than 256 characters long.`;
@@ -36,6 +41,8 @@ const ERROR_CHAIN_MESSAGE_TOO_LONG = `Sorry, the message of the chain must be le
 const ERROR_CHAIN_MESSAGE_TOO_SHORT = `Sorry, the message of the chain must be at least 1 character long.`;
 
 const ERROR_NOT_REPLIED = `You haven't replied to this chain yet!`;
+
+const ERROR_NOT_ALLOWED = `Sorry, this action is not allowed!`;
 
 const SUCCESS_MESSAGE_RECEIVED = "Your message has been received!";
 
@@ -116,6 +123,23 @@ bot.start(async (ctx) => {
     } catch (e) {
         console.log("Error: ", e);
     }
+});
+
+/* Admin command: see # of active chains, etc */
+bot.command("stats", (ctx) => {
+    if (ctx.message.from.id.toString() != OWNER_ID) {
+        return ctx.reply(ERROR_NOT_ALLOWED);
+    }
+
+    const activeChainNumber = inlineChainData.filter((e) => !e.ended).length;
+
+    let msg = `${activeChainNumber} chains active.\n\n`;
+
+    inlineChainData.forEach((chain, index) => {
+        msg += `${index + 1}. ${chain.isAnon ? "Anonymous" : "Normal"} chain by @${chain.by.username}. Last updated on ${new Date(chain.lastUpdated).toLocaleString("en-GB")}\n\n`;
+    });
+
+    ctx.reply(msg)
 });
 
 bot.on("text", async (ctx) => {
@@ -254,10 +278,12 @@ bot.on("inline_query", async (ctx) => {
 });
 
 /* Listen for when the user chooses a result from the inline query to share a chain */
+// https://github.com/telegraf/telegraf/issues/465
 bot.on("chosen_inline_result", (ctx) => {
     try {
         // chain shared with a group
         // if (!ctx.chat || !ctx.chat.id) return
+
         const chainId = ctx.chosenInlineResult.result_id;
         const msgId = ctx.chosenInlineResult.inline_message_id || "";
 
@@ -330,13 +356,38 @@ bot.on("callback_query", async (ctx) => {
             editMessages(chain, ctx, true);
             // edit the group messages to remove / add the 'share chain' button
         }
+
+        if (cbData?.startsWith("anon")) {
+            const chainId = cbData.replace("anon_", "");
+            // find the chain
+            const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+            if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
+
+            // Note: we don't allow people to make an anonymous chain visible again.
+            if (chain.isAnon) return ctx.answerCbQuery(ERROR_NOT_ALLOWED);
+
+            // make the chain anonymous
+            chain.toggleAnon();
+            ctx.answerCbQuery(
+                `Chain is now ${
+                    chain.isPublic
+                        ? "anonymous. People won't be able to see who responded, only what they respond.!"
+                        : "no longer anonymous. People can see the names of respondees."
+                }`
+            );
+
+            editMessages(chain, ctx, true);
+        }
     } catch (e) {
         console.log("Error: ", e);
     }
 });
 
+
+
 const generateSharedReplyMarkup = (chainId: string) => {
-    const url = `https://t.me/msgchainbot?start=add_${chainId}`;
+    const url = `https://t.me/${BOT_NAME}?start=add_${chainId}`;
     const chain = inlineChainData.find((chain) => chain.id === chainId);
     if (!chain) return {};
 
@@ -397,14 +448,28 @@ const generatePMReplyMarkup = (chain: Chain) => {
                         callback_data: `end_${chain.id}`,
                     },
                 ],
-                [
-                    {
-                        text: `Make chain ${
-                            chain.isPublic ? "private" : "public"
-                        }`,
-                        callback_data: `public_${chain.id}`,
-                    },
-                ],
+                !chain.isAnon
+                    ? [
+                          {
+                              text: `Make chain ${
+                                  chain.isPublic ? "private" : "public"
+                              }`,
+                              callback_data: `public_${chain.id}`,
+                          },
+
+                          {
+                              text: `Hide respondents' names. This cannot be undone!`,
+                              callback_data: `anon_${chain.id}`,
+                          },
+                      ]
+                    : [
+                          {
+                              text: `Make chain ${
+                                  chain.isPublic ? "private" : "public"
+                              }`,
+                              callback_data: `public_${chain.id}`,
+                          },
+                      ],
             ],
         },
     };
