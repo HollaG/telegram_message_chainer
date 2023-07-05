@@ -697,6 +697,10 @@ const createChain = async (ctx: Context, sanitizedTitle: string) => {
 
         const uniqueChainId = `${ctx.chat.id}${ENCODER_SEPARATOR}${msgId}`;
         const chain = new Chain(ctx.from, sanitizedTitle, uniqueChainId);
+
+        const ref = doc(fireDb, COLLECTION_NAME, uniqueChainId);
+        await setDoc(ref, chain.serialize());
+
         // save the chain
         inlineChainData.push(chain);
 
