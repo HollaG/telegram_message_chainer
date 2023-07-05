@@ -409,6 +409,14 @@ bot.on("chosen_inline_result", async (ctx) => {
             await setDoc(docRef, chain.serialize());
         } else {
             const chainId = ctx.chosenInlineResult.result_id;
+
+            const chainRef = doc(fireDb, COLLECTION_NAME, encodedId);
+
+            const chain = new Chain((await getDoc(chainRef)).data()) as Chain;
+
+            chain.addNewSharedChat(inlineMsgId);
+
+            updateDoc(chainRef, chain.serialize());
         }
 
         // chain shared with a group
