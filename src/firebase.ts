@@ -17,3 +17,5 @@ const app = initializeApp(firebaseConfig);
 export const fireDb = getFirestore(app);
 
 export const COLLECTION_NAME = process.env.COLLECTION_NAME || "chains_dev";
+
+console.log({ COLLECTION_NAME });

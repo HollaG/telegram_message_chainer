@@ -17,6 +17,10 @@ import {
     onSnapshot,
     setDoc,
     updateDoc,
+    where,
+    query,
+    getDocs,
+    orderBy,
 } from "firebase/firestore";
 import { COLLECTION_NAME, fireDb } from "./firebase";
 const sanitizeOptions = {
@@ -230,15 +234,25 @@ bot.on("text", async (ctx) => {
 /* Inline Queries */
 bot.on("inline_query", async (ctx) => {
     try {
-        const query = ctx.inlineQuery.query.trim();
+        const queryString = ctx.inlineQuery.query.trim();
 
         // todo: load data from Firebase
-        const chains: InlineQueryResultArticle[] = [];
+        const collectionRef = query(
+            collection(fireDb, COLLECTION_NAME),
+            // where(queryString, "in", "title"),
+            where("by.id", "==", ctx.from.id),
+            where("ended", "==", false),
+            orderBy("lastUpdated", "desc")
+        );
+
+        const querySnapshot = await getDocs(collectionRef);
+
+        let chains: InlineQueryResultArticle[] = [];
 
         chains.push({
             type: "article",
-            id: `create__-__${query}`,
-            title: `[Create new] ${query}`,
+            id: `create__-__${queryString}`,
+            title: `[Create new] ${queryString}`,
             input_message_content: {
                 message_text: "Loading...",
             },
@@ -253,9 +267,37 @@ bot.on("inline_query", async (ctx) => {
                 ],
             },
         });
+        // filter out the chains that don't match queryString
+
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            const chain = new Chain(data);
+
+            const id = chain.id;
+            const chatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+            const msgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+
+            if (!chain.title.includes(queryString)) return;
+
+            chains.push({
+                type: "article",
+                id: chain.id,
+                title: chain.title,
+                input_message_content: {
+                    message_text: chain.generateReplyMessage(chatId, msgId),
+                    parse_mode: "HTML",
+                    disable_web_page_preview: true,
+                },
+                ...generateSharedReplyMarkup(chain),
+            });
+        });
+
+        // max: 50 results
+        chains = chains.slice(0, 50);
 
         ctx.answerInlineQuery(chains, {
             cache_time: 0,
+            is_personal: true,
         });
 
         return;
