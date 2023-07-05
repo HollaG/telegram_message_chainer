@@ -10,6 +10,15 @@ import {
 require("dotenv").config();
 
 import sanitizeHtml from "sanitize-html";
+import {
+    collection,
+    doc,
+    getDoc,
+    onSnapshot,
+    setDoc,
+    updateDoc,
+} from "firebase/firestore";
+import { COLLECTION_NAME, fireDb } from "./firebase";
 const sanitizeOptions = {
     allowedTags: [],
     allowedAttributes: {},
@@ -136,10 +145,14 @@ bot.command("stats", (ctx) => {
     let msg = `${activeChainNumber} chains active.\n\n`;
 
     inlineChainData.forEach((chain, index) => {
-        msg += `${index + 1}. ${chain.isAnon ? "Anonymous" : "Normal"} chain by @${chain.by.username}. Last updated on ${new Date(chain.lastUpdated).toLocaleString("en-GB")}\n\n`;
+        msg += `${index + 1}. ${
+            chain.isAnon ? "Anonymous" : "Normal"
+        } chain by @${chain.by.username}. Last updated on ${new Date(
+            chain.lastUpdated
+        ).toLocaleString("en-GB")}\n\n`;
     });
 
-    ctx.reply(msg)
+    ctx.reply(msg);
 });
 
 bot.on("text", async (ctx) => {
@@ -218,60 +231,89 @@ bot.on("text", async (ctx) => {
 bot.on("inline_query", async (ctx) => {
     try {
         const query = ctx.inlineQuery.query.trim();
-        // Look for the chain belonging to this user with the specified search terms only if it exists
 
-        const chains = inlineChainData.filter(
-            (chain) =>
-                chain.title.includes(query) && chain.by.id === ctx.from.id // todo fix this to id based
-        );
+        // todo: load data from Firebase
+        const chains: InlineQueryResultArticle[] = [];
 
-        // Return public chains IFF it's an exact match AND the creator is not the same as the requestor (because that's covered
-        // in the `chains` array)
-        const publicChains = inlineChainData.filter(
-            (chain) =>
-                chain.title === query &&
-                chain.isPublic &&
-                chain.by.id !== ctx.from.id
-        );
-
-        chains.push(...publicChains);
-
-        if (chains.length === 0) {
-            ctx.answerInlineQuery([], {
-                switch_pm_parameter: "inline",
-                switch_pm_text: "Create a new chain",
-                cache_time: 0,
-            });
-            return;
-        } else {
-            const mappedChains: InlineQueryResultArticle[] = chains.map(
-                (chain) => {
-                    const chatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
-                    const msgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
-                    return {
-                        type: "article",
-                        id: chain.id,
-                        title: chain.title,
-                        input_message_content: {
-                            message_text: chain.generateReplyMessage(
-                                chatId,
-                                msgId
-                            ),
-                            parse_mode: "HTML",
-                            disable_web_page_preview: true,
+        chains.push({
+            type: "article",
+            id: `create__-__${query}`,
+            title: `[Create new] ${query}`,
+            input_message_content: {
+                message_text: "Loading...",
+            },
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text: "Loading...",
+                            callback_data: "loading",
                         },
-                        ...generateSharedReplyMarkup(chain.id),
-                    };
-                }
-            );
-            ctx.answerInlineQuery(mappedChains, {
-                switch_pm_parameter: "inline",
-                switch_pm_text: "Create a new chain",
-                cache_time: 0,
-            });
-        }
+                    ],
+                ],
+            },
+        });
+
+        ctx.answerInlineQuery(chains, {
+            cache_time: 0,
+        });
 
         return;
+
+        // // Look for the chain belonging to this user with the specified search terms only if it exists
+
+        // const chains = inlineChainData.filter(
+        //     (chain) =>
+        //         chain.title.includes(query) && chain.by.id === ctx.from.id // todo fix this to id based
+        // );
+
+        // // Return public chains IFF it's an exact match AND the creator is not the same as the requestor (because that's covered
+        // // in the `chains` array)
+        // const publicChains = inlineChainData.filter(
+        //     (chain) =>
+        //         chain.title === query &&
+        //         chain.isPublic &&
+        //         chain.by.id !== ctx.from.id
+        // );
+
+        // chains.push(...publicChains);
+
+        // if (chains.length === 0) {
+        //     ctx.answerInlineQuery([], {
+        //         switch_pm_parameter: "inline",
+        //         switch_pm_text: "Create a new chain",
+        //         cache_time: 0,
+        //     });
+        //     return;
+        // } else {
+        //     const mappedChains: InlineQueryResultArticle[] = chains.map(
+        //         (chain) => {
+        //             const chatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
+        //             const msgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
+        //             return {
+        //                 type: "article",
+        //                 id: chain.id,
+        //                 title: chain.title,
+        //                 input_message_content: {
+        //                     message_text: chain.generateReplyMessage(
+        //                         chatId,
+        //                         msgId
+        //                     ),
+        //                     parse_mode: "HTML",
+        //                     disable_web_page_preview: true,
+        //                 },
+        //                 ...generateSharedReplyMarkup(chain.id),
+        //             };
+        //         }
+        //     );
+        //     ctx.answerInlineQuery(mappedChains, {
+        //         switch_pm_parameter: "inline",
+        //         switch_pm_text: "Create a new chain",
+        //         cache_time: 0,
+        //     });
+        // }
+
+        // return;
     } catch (e) {
         console.log("Error: ", e);
     }
@@ -279,23 +321,61 @@ bot.on("inline_query", async (ctx) => {
 
 /* Listen for when the user chooses a result from the inline query to share a chain */
 // https://github.com/telegraf/telegraf/issues/465
-bot.on("chosen_inline_result", (ctx) => {
+bot.on("chosen_inline_result", async (ctx) => {
     try {
+        console.log("chosen inline result");
+
+        const encodedId = ctx.chosenInlineResult.result_id;
+        const inlineMsgId = ctx.chosenInlineResult.inline_message_id || "";
+
+        console.log({ encodedId });
+        if (encodedId.startsWith("create__-__")) {
+            // we are creating a new chain
+            const sanitizedTitle = sanitizeHtml(
+                encodedId.replace("create__-__", ""),
+                sanitizeBodyOptions
+            );
+
+            // 1) send a notification message to the creator
+            const loadingMsg = await ctx.telegram.sendMessage(
+                ctx.from.id,
+                "Loading..."
+            );
+
+            const uniqueChainId = `${ctx.from.id}${ENCODER_SEPARATOR}${loadingMsg.message_id}`;
+
+            // 1) create template in Firebase
+            const chain = new Chain(ctx.from, sanitizedTitle, uniqueChainId);
+
+            const docRef = doc(fireDb, COLLECTION_NAME, uniqueChainId);
+
+            inlineChainData.push(chain);
+
+            chain.addNewSharedChat(inlineMsgId);
+
+            editMessages(chain, ctx);
+
+            ctx.telegram.pinChatMessage(ctx.from.id, loadingMsg.message_id);
+            await setDoc(docRef, chain.serialize());
+        } else {
+            const chainId = ctx.chosenInlineResult.result_id;
+        }
+
         // chain shared with a group
         // if (!ctx.chat || !ctx.chat.id) return
 
-        const chainId = ctx.chosenInlineResult.result_id;
-        const msgId = ctx.chosenInlineResult.inline_message_id || "";
+        // const chainId = ctx.chosenInlineResult.result_id;
+        // const msgId = ctx.chosenInlineResult.inline_message_id || "";
 
-        // find the chain
-        const chain = inlineChainData.find((chain) => chain.id === chainId);
+        // // find the chain
+        // const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-        if (!chain) return console.error("ERROR: chain not found");
+        // if (!chain) return console.error("ERROR: chain not found");
 
-        // store the msgId for future editing
-        chain.addNewSharedChat(msgId);
+        // // store the msgId for future editing
+        // chain.addNewSharedChat(msgId);
 
-        backupAndClearInlineChains(ctx);
+        // backupAndClearInlineChains(ctx);
     } catch (e) {
         console.log("Error: ", e);
     }
@@ -306,45 +386,79 @@ bot.on("callback_query", async (ctx) => {
     try {
         const cbData = ctx.callbackQuery.data;
         if (!ctx.from) return;
+
+        console.log(cbData);
         if (cbData?.startsWith("end")) {
             const chainId = cbData.replace("end_", "");
-            // find the chain
-            const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-            if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
+            // edit and end the chain
+            const docRef = doc(fireDb, COLLECTION_NAME, chainId);
+            updateDoc(docRef, {
+                ended: true,
+            });
 
-            // end the chain
-            chain.endChain();
-            ctx.answerCbQuery("Chain ended!");
-            backupAndClearInlineChains(ctx);
+            // const chainId = cbData.replace("end_", "");
+            // // find the chain
+            // const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+            // if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
+
+            // // end the chain
+            // chain.endChain();
+            // ctx.answerCbQuery("Chain ended!");
+            // backupAndClearInlineChains(ctx);
         }
         if (cbData?.startsWith("remove")) {
             const chainId = cbData.replace("remove_", "");
-            // find the chain
-            const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+            const docRef = doc(fireDb, COLLECTION_NAME, chainId);
+            const previousData = await getDoc(docRef);
+            const chain = previousData.data() as Chain;
 
             if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
 
-            // ignore if user never replied in the first place
-            if (!chain.replies[ctx.from.id])
+            const prevReplies = chain.replies;
+            if (!prevReplies[ctx.from.id])
                 return ctx.answerCbQuery(ERROR_NOT_REPLIED);
 
-            // remove this user from the chain
-            chain.removeReply(ctx.from.id);
-            // update messages
-            editMessages(chain, ctx);
-            ctx.answerCbQuery("Message removed!");
+            // remove this user
+            delete prevReplies[ctx.from.id];
+
+            // update the chain
+            updateDoc(docRef, {
+                replies: prevReplies,
+            });
+
+            // find the chain
+            // const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+            // if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
+
+            // // ignore if user never replied in the first place
+            // if (!chain.replies[ctx.from.id])
+            //     return ctx.answerCbQuery(ERROR_NOT_REPLIED);
+
+            // // remove this user from the chain
+            // chain.removeReply(ctx.from.id);
+            // // update messages
+            // editMessages(chain, ctx);
+            // ctx.answerCbQuery("Message removed!");
         }
 
         if (cbData?.startsWith("public")) {
             const chainId = cbData.replace("public_", "");
             // find the chain
-            const chain = inlineChainData.find((chain) => chain.id === chainId);
-
-            if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
-
-            // make the chain public
+            const docRef = doc(fireDb, COLLECTION_NAME, chainId);
+            const previousData = await getDoc(docRef);
+            const chainData = previousData.data() as Chain;
+            const chain = new Chain(chainData);
             chain.togglePublic();
+
+            // update the chain
+            updateDoc(docRef, {
+                isPublic: chain.isPublic,
+            });
+
             ctx.answerCbQuery(
                 `Chain is now ${
                     chain.isPublic
@@ -352,44 +466,85 @@ bot.on("callback_query", async (ctx) => {
                         : "private. Other people no longer can share your chain!"
                 }`
             );
-
             editMessages(chain, ctx, true);
+            // const chain = inlineChainData.find((chain) => chain.id === chainId);
+
+            // if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
+
+            // // make the chain public
+            // chain.togglePublic();
+            // ctx.answerCbQuery(
+            //     `Chain is now ${
+            //         chain.isPublic
+            //             ? "public. Other people can share your chain!"
+            //             : "private. Other people no longer can share your chain!"
+            //     }`
+            // );
+
+            // editMessages(chain, ctx, true);
             // edit the group messages to remove / add the 'share chain' button
         }
 
-        if (cbData?.startsWith("anon")) {
-            const chainId = cbData.replace("anon_", "");
-            // find the chain
-            const chain = inlineChainData.find((chain) => chain.id === chainId);
+        // if (cbData?.startsWith("anon")) {
+        //     const chainId = cbData.replace("anon_", "");
+        //     // find the chain
+        //     const chain = inlineChainData.find((chain) => chain.id === chainId);
 
-            if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
+        //     if (!chain) return ctx.answerCbQuery(ERROR_CHAIN_NOT_FOUND);
 
-            // Note: we don't allow people to make an anonymous chain visible again.
-            if (chain.isAnon) return ctx.answerCbQuery(ERROR_NOT_ALLOWED);
+        //     // Note: we don't allow people to make an anonymous chain visible again.
+        //     if (chain.isAnon) return ctx.answerCbQuery(ERROR_NOT_ALLOWED);
 
-            // make the chain anonymous
-            chain.toggleAnon();
-            ctx.answerCbQuery(
-                `Chain is now ${
-                    chain.isPublic
-                        ? "anonymous. People won't be able to see who responded, only what they respond.!"
-                        : "no longer anonymous. People can see the names of respondees."
-                }`
-            );
+        //     // make the chain anonymous
+        //     chain.toggleAnon();
+        //     ctx.answerCbQuery(
+        //         `Chain is now ${
+        //             chain.isPublic
+        //                 ? "anonymous. People won't be able to see who responded, only what they respond.!"
+        //                 : "no longer anonymous. People can see the names of respondees."
+        //         }`
+        //     );
 
-            editMessages(chain, ctx, true);
-        }
+        //     editMessages(chain, ctx, true);
+        // }
     } catch (e) {
         console.log("Error: ", e);
     }
 });
 
-
-
-const generateSharedReplyMarkup = (chainId: string) => {
+const generateSharedReplyMarkup = (chain: Chain) => {
+    const chainId = chain.id;
     const url = `https://t.me/${BOT_NAME}?start=add_${chainId}`;
-    const chain = inlineChainData.find((chain) => chain.id === chainId);
+
     if (!chain) return {};
+
+    // const inlineKeyboard: (
+    //     | (
+    //           | {
+    //                 text: string;
+    //                 url: string;
+    //             }
+    //           | {
+    //                 text: string;
+    //                 callback_data: string;
+    //             }
+    //       )[]
+    //     | {
+    //           switch_inline_query: string;
+    //           text: string;
+    //       }[]
+    // )[] = [
+    //     [
+    //         {
+    //             text: "Add / Edit your message",
+    //             url,
+    //         },
+    //         {
+    //             text: "Remove your message",
+    //             callback_data: `remove_${chainId}`,
+    //         },
+    //     ],
+    // ];
 
     const inlineKeyboard: (
         | (
@@ -410,7 +565,7 @@ const generateSharedReplyMarkup = (chainId: string) => {
         [
             {
                 text: "Add / Edit your message",
-                url,
+                url: `https://t.me/${process.env.BOT_NAME}/msg?startapp=reply__-__${chainId}&startApp=reply__-__${chainId}`,
             },
             {
                 text: "Remove your message",
@@ -448,28 +603,36 @@ const generatePMReplyMarkup = (chain: Chain) => {
                         callback_data: `end_${chain.id}`,
                     },
                 ],
-                !chain.isAnon
-                    ? [
-                          {
-                              text: `Make chain ${
-                                  chain.isPublic ? "private" : "public"
-                              }`,
-                              callback_data: `public_${chain.id}`,
-                          },
+                [
+                    {
+                        text: `Make chain ${
+                            chain.isPublic ? "private" : "public"
+                        }`,
+                        callback_data: `public_${chain.id}`,
+                    },
+                ],
+                // !chain.isAnon
+                //     ? [
+                //           {
+                //               text: `Make chain ${
+                //                   chain.isPublic ? "private" : "public"
+                //               }`,
+                //               callback_data: `public_${chain.id}`,
+                //           },
 
-                          {
-                              text: `Hide respondents' names. This cannot be undone!`,
-                              callback_data: `anon_${chain.id}`,
-                          },
-                      ]
-                    : [
-                          {
-                              text: `Make chain ${
-                                  chain.isPublic ? "private" : "public"
-                              }`,
-                              callback_data: `public_${chain.id}`,
-                          },
-                      ],
+                //           {
+                //               text: `Hide respondents' names. This cannot be undone!`,
+                //               callback_data: `anon_${chain.id}`,
+                //           },
+                //       ]
+                //     : [
+                //           {
+                //               text: `Make chain ${
+                //                   chain.isPublic ? "private" : "public"
+                //               }`,
+                //               callback_data: `public_${chain.id}`,
+                //           },
+                //       ],
             ],
         },
     };
@@ -509,14 +672,14 @@ const createChain = async (ctx: Context, sanitizedTitle: string) => {
     }
 };
 
-const endChain = (chain: Chain, ctx: Context) => {
+const endChain = (chain: Chain, ctx?: Context) => {
     try {
         const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
         const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
 
         // Edit group messages
         for (const inlineMsgId of chain.sharedInChats) {
-            ctx.telegram
+            bot.telegram
                 .editMessageText(
                     undefined,
                     undefined,
@@ -531,7 +694,7 @@ const endChain = (chain: Chain, ctx: Context) => {
         }
 
         // Edit pm message
-        ctx.telegram
+        bot.telegram
             .editMessageText(
                 chainChatId,
                 chainMsgId,
@@ -557,7 +720,7 @@ const endChain = (chain: Chain, ctx: Context) => {
 
 const editMessages = (
     chain: Chain,
-    ctx: Context,
+    ctx?: Context,
     preventAcknowledge = false
 ) => {
     try {
@@ -565,7 +728,7 @@ const editMessages = (
         const chainChatId = Number(chain.id.split(ENCODER_SEPARATOR)[0]);
         const chainMsgId = Number(chain.id.split(ENCODER_SEPARATOR)[1]);
         for (const inlineMsgId of chain.sharedInChats) {
-            ctx.telegram
+            bot.telegram
                 .editMessageText(
                     undefined,
                     undefined,
@@ -574,14 +737,14 @@ const editMessages = (
                     {
                         parse_mode: "HTML",
                         disable_web_page_preview: true,
-                        ...generateSharedReplyMarkup(chain.id),
+                        ...generateSharedReplyMarkup(chain),
                     }
                 )
                 .catch((e) => editErrorHandler(e, ctx));
         }
 
         // Edit the message in the PM
-        ctx.telegram
+        bot.telegram
             .editMessageText(
                 chainChatId,
                 chainMsgId,
@@ -596,7 +759,7 @@ const editMessages = (
             .catch((e) => editErrorHandler(e, ctx));
 
         // From a user sending a message
-        if (ctx.chat && !preventAcknowledge) {
+        if (ctx && ctx.chat && !preventAcknowledge) {
             delete inlineReplyData[ctx.chat.id];
             ctx.reply(SUCCESS_MESSAGE_RECEIVED);
         }
@@ -633,14 +796,14 @@ const backupAndClearInlineChains = async (ctx: Context) => {
     }
 };
 
-const editErrorHandler = (e: any, ctx: Context) => {
+const editErrorHandler = (e: any, ctx?: Context) => {
     console.log(e);
     if (e.response.error_code === 429) {
         // too many requests, timeout and try again
         let retryTime = (e.response.parameters.retry_after + 1) * 1000;
 
         setTimeout(() => {
-            ctx.telegram.editMessageText(
+            bot.telegram.editMessageText(
                 e.on.payload.chat_id,
                 e.on.payload.message_id,
                 e.on.payload.inline_message_id,
@@ -677,10 +840,40 @@ try {
             console.log(e);
         }
     }
-    
 }
 
-bot.launch().then(() => console.log("Bot is running!"));
+bot.launch().then(() => {
+    // Set up listener
+    const collectionRef = collection(fireDb, COLLECTION_NAME);
+    const unsubcribe = onSnapshot(collectionRef, {
+        next: (snapshot) => {
+            const changes = snapshot.docChanges();
+            changes.forEach((change) => {
+                if (change.type === "added") {
+                    // shouldn't happen
+                    console.log("Added: ", change.doc.data());
+                } else if (change.type === "modified") {
+                    console.log("Modified: ", change.doc.data());
+                    const chainData = change.doc.data() as Chain;
+                    const chain = new Chain(chainData);
+                    if (chain.ended) {
+                        console.log("ending chain", chain);
+                        endChain(chain);
+                    } else {
+                        editMessages(chain);
+                    }
+                } else if (change.type === "removed") {
+                    // mark chain as deleted
+                    // endChain(change.doc.data() as Chain);
+                }
+
+                const chainData = change.doc.data() as Chain;
+            });
+        },
+    });
+
+    console.log("Bot is running!");
+});
 
 // Enable graceful stop
 process.once("SIGINT", () => bot.stop("SIGINT"));

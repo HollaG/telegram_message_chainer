@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "dotenv": "^16.0.1",
+    "firebase": "^9.23.0",
     "sanitize-html": "^2.7.1",
     "telegraf": "^4.8.6"
   }

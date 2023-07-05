@@ -40,7 +40,8 @@ export class Chain {
             this.id = restoredData.id;
             this.sharedInChats = restoredData.sharedInChats;
             this.isPublic = restoredData.isPublic;
-            this.isAnon = restoredData.isAnon
+            this.isAnon = restoredData.isAnon;
+            this.ended = restoredData.ended;
         } else {
             const by = args[0];
             const title = args[1];
@@ -51,7 +52,7 @@ export class Chain {
             this.secondLastUpdated = Date.now();
             this.title = title;
             this.id = id;
-            this.sharedInChats = [];           
+            this.sharedInChats = [];
         }
     }
 
@@ -94,21 +95,16 @@ export class Chain {
         const chain: string[] = [];
         Object.keys(this.replies).forEach((memberId, i) => {
             if (this.isAnon) {
-                chain.push(
-                    `${
-                        this.replies[Number(memberId)].text
-                    }\n\n`
-                );
+                chain.push(`${this.replies[Number(memberId)].text}\n\n`);
             } else {
                 chain.push(
-                    `<a href='t.me/${this.replies[Number(memberId)].username}'><b>${
-                        i + 1
-                    }. ${this.replies[Number(memberId)].first_name}</b></a>\n${
-                        this.replies[Number(memberId)].text
-                    }\n\n`
+                    `<a href='t.me/${
+                        this.replies[Number(memberId)].username
+                    }'><b>${i + 1}. ${
+                        this.replies[Number(memberId)].first_name
+                    }</b></a>\n${this.replies[Number(memberId)].text}\n\n`
                 );
             }
-           
         });
 
         return chain.join("");
@@ -124,10 +120,10 @@ export class Chain {
         if (this.title.length) {
             replyMsg += `<b><u>${this.title}</u></b>\n`;
             if (this.isAnon) {
-                replyMsg += `<i>This chain is anonymous, your name will not be shown to anyone. </i>\n`
+                replyMsg += `<i>This chain is anonymous, your name will not be shown to anyone. </i>\n`;
             }
 
-            replyMsg += `\n`
+            replyMsg += `\n`;
         }
 
         if (Object.keys(this.replies).length) {
@@ -151,5 +147,20 @@ export class Chain {
 
     endChain() {
         this.ended = true;
+    }
+
+    serialize() {
+        return {
+            lastUpdated: this.lastUpdated,
+            by: this.by,
+            replies: this.replies,
+            secondLastUpdated: this.secondLastUpdated,
+            title: this.title,
+            id: this.id,
+            sharedInChats: this.sharedInChats,
+            isPublic: this.isPublic,
+            isAnon: this.isAnon,
+            ended: this.ended,
+        };
     }
 }
