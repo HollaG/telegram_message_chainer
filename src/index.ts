@@ -21,6 +21,7 @@ import {
     query,
     getDocs,
     orderBy,
+    Timestamp,
 } from "firebase/firestore";
 import { COLLECTION_NAME, fireDb } from "./firebase";
 const sanitizeOptions = {
@@ -252,10 +253,13 @@ bot.on("inline_query", async (ctx) => {
         chains.push({
             type: "article",
             id: `create__-__${queryString}`,
-            title: `[Create new] ${queryString}`,
+            title: `[Create new] ${queryString || "No title"}`,
+            description: "Click me to create a new chain with this title!",
             input_message_content: {
                 message_text: "Loading...",
             },
+            // thumb_url:
+            //     "https://cdn.icon-icons.com/icons2/2406/PNG/512/plus_circle_new_create_icon_145948.png",
             reply_markup: {
                 inline_keyboard: [
                     [
@@ -279,10 +283,14 @@ bot.on("inline_query", async (ctx) => {
 
             if (!chain.title.includes(queryString)) return;
 
+            // convert Firebase timestamp back to date
+            const lastUpdated = new Date(chain.lastUpdated);
+
             chains.push({
                 type: "article",
                 id: chain.id,
-                title: chain.title,
+                title: `${chain.title || "No title"}`,
+                description: `Last updated ${formatTimeElapsed(lastUpdated)}`,
                 input_message_content: {
                     message_text: chain.generateReplyMessage(chatId, msgId),
                     parse_mode: "HTML",
@@ -893,9 +901,9 @@ bot.launch().then(() => {
             changes.forEach((change) => {
                 if (change.type === "added") {
                     // shouldn't happen
-                    console.log("Added: ", change.doc.data());
+                    // console.log("Added: ", change.doc.data());
                 } else if (change.type === "modified") {
-                    console.log("Modified: ", change.doc.data());
+                    // console.log("Modified: ", change.doc.data());
                     const chainData = change.doc.data() as Chain;
                     const chain = new Chain(chainData);
                     if (chain.ended) {
@@ -925,3 +933,20 @@ process.on("uncaughtException", console.log);
 process.on("unhandledRejection", console.log);
 process.on("warning", console.log);
 process.on("error", console.log);
+
+const formatTimeElapsed = (date: Date) => {
+    const timeElapsed = Math.abs(new Date().getTime() - date.getTime());
+    const minutes = Math.floor(timeElapsed / (1000 * 60));
+    const days = Math.floor(timeElapsed / (1000 * 3600 * 24));
+    const hours = Math.floor(timeElapsed / (1000 * 3600));
+    const weeks = Math.floor(days / 7);
+    const months = Math.floor(weeks / 4);
+
+    if (months > 0) return `${months} month${months === 1 ? "" : "s"} ago`;
+    else if (weeks > 0) return `${weeks} week${weeks === 1 ? "" : "s"} ago`;
+    else if (days > 0) return `${days} day${days === 1 ? "" : "s"} ago`;
+    else if (hours > 0) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    else if (minutes > 2)
+        return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+    else return "just now";
+};
