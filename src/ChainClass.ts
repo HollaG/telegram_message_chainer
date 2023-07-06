@@ -122,20 +122,22 @@ export class Chain {
     }
 
     generateReplyMessage(chatId: number, msgId: number) {
-        let replyMsg = "";
+        let header = "";
 
         if (this.ended) {
-            replyMsg += `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n`;
+            header += `<b><u><i>❗️❗️ Chain has ended ❗️❗️</i></u></b>\n\n`;
         }
 
         if (this.title.length) {
-            replyMsg += `<b><u>${this.title}</u></b>\n`;
+            header += `<b><u>${this.title}</u></b>\n`;
             if (this.isAnon) {
-                replyMsg += `<i>This chain is anonymous, your name will not be shown to anyone. </i>\n`;
+                header += `<i>This chain is anonymous, your name will not be shown to anyone. </i>\n`;
             }
 
-            replyMsg += `\n`;
+            header += `\n`;
         }
+
+        let replyMsg = "";
 
         if (Object.keys(this.replies).length) {
             const chain = this.generateChain();
@@ -146,7 +148,19 @@ export class Chain {
             replyMsg += `<i>No respondents yet </i>\n\n`;
         }
 
-        replyMsg += `<i>#${chatId}:${msgId} | by <a href='t.me/${this.by.username}'>${this.by.first_name}</a></i>`;
+        let footer = `<i>#${chatId}:${msgId} | by <a href='t.me/${this.by.username}'>${this.by.first_name}</a></i>`;
+
+        // if message > 4000 characters in length, it will exceed Telegram's limits, so we show a
+        // warning message to view the rest of the chain on the website.
+        if ((header + replyMsg + footer).length > 4000) {
+            return `${header}The length of the replies has exceeded the maximum for Telegram.\n\nPlease view the entire chain <a href='https://t.me/${
+                process.env.BOT_NAME
+            }/msg?startapp=reply__-__${this.id}&startApp=reply__-__${
+                this.id
+            }'> here </a>\n\n${
+                Object.keys(this.replies).length
+            } 👥 responded\n\n${footer}`;
+        }
 
         return replyMsg;
     }
