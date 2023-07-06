@@ -1,3 +1,5 @@
+import sanitizeHtml from "sanitize-html";
+
 type BasicDetails = {
     id: number;
     first_name: string;
@@ -94,15 +96,24 @@ export class Chain {
     generateChain() {
         const chain: string[] = [];
         Object.keys(this.replies).forEach((memberId, i) => {
+            // Sanitize reply message.
+            const sanitizeBodyOptions = {
+                allowedTags: ["b", "i", "u"],
+            };
+
+            const msg = sanitizeHtml(
+                this.replies[Number(memberId)].text,
+                sanitizeBodyOptions
+            );
             if (this.isAnon) {
-                chain.push(`${this.replies[Number(memberId)].text}\n\n`);
+                chain.push(`${msg}\n\n`);
             } else {
                 chain.push(
                     `<a href='t.me/${
                         this.replies[Number(memberId)].username
                     }'><b>${i + 1}. ${
                         this.replies[Number(memberId)].first_name
-                    }</b></a>\n${this.replies[Number(memberId)].text}\n\n`
+                    }</b></a>\n${msg}\n\n`
                 );
             }
         });
