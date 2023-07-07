@@ -162,7 +162,7 @@ export class Chain {
             } 👥 responded\n\n${footer}`;
         }
 
-        return replyMsg;
+        return header + replyMsg + footer;
     }
 
     addNewSharedChat(msgId: string) {
