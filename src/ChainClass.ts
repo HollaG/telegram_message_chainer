@@ -111,9 +111,10 @@ export class Chain {
                 chain.push(
                     `<a href='t.me/${
                         this.replies[Number(memberId)].username
-                    }'><b>${i + 1}. ${
-                        this.replies[Number(memberId)].first_name
-                    }</b></a>\n${msg}\n\n`
+                    }'><b>${i + 1}. ${sanitizeHtml(
+                        this.replies[Number(memberId)].first_name,
+                        sanitizeBodyOptions
+                    )}</b></a>\n${msg}\n\n`
                 );
             }
         });
