@@ -163,7 +163,8 @@ export class Chain {
             } 👥 responded\n\n${footer}`;
         }
 
-        return header + replyMsg + footer;
+        const link = `https://t.me/${process.env.BOT_NAME}/msg?startapp=reply__-__${this.id}&startApp=reply__-__${this.id}`
+        return header + replyMsg + footer + link;
     }
 
     addNewSharedChat(msgId: string) {
